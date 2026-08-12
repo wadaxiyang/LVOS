@@ -27,5 +27,6 @@ jobs:
       - name: Verify repository policy
         shell: bash
         run: |
+          python3 -m unittest scripts/test_ci_checks.py
           python3 scripts/check_repository_policy.py
-          ./scripts/check-workspace.sh
+          python3 scripts/check_workspace.py
