@@ -2,6 +2,7 @@
 /AGENTS.md
 /LVOS_development_spec.md
 /docs/
+/.firecrawl/
 
 # Secrets and local configuration.
 /.env

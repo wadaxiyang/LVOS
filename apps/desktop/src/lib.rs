@@ -16,12 +16,14 @@ pub use lifecycle::{
     SwitchOutcome, acquire_single_instance,
 };
 pub use lookup::{LookupError, LookupMode, LookupOutcome, LookupService};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub use ui::show_captured_provider_error;
+#[cfg(target_os = "macos")]
+pub use ui::show_permission_window;
 pub use ui::{
     DeviceRecord, MainWindow, PermissionWindow, QuickLookupPopup, UiController, UiControllerError,
     UiRecord, ui_record,
 };
-#[cfg(target_os = "macos")]
-pub use ui::{show_captured_provider_error, show_permission_window};
 pub use ui_bridge::{SlintUiDispatcher, UiDispatchError, UiDispatcher};
 pub use ui_service::{UiDataError, UiDataService, UiRecordData};
 pub use ui_state::{
