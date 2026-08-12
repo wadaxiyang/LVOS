@@ -9,6 +9,13 @@ repository.workspace = true
 
 [dependencies]
 lvos-core = { path = "../core" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3.26.0"
 
 [lints]
 workspace = true

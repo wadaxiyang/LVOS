@@ -17,6 +17,10 @@ SECRET_PATTERNS = (
     re.compile(rb"Bearer [A-Za-z0-9._-]{20,}"),
     re.compile(rb"AIza[0-9A-Za-z_-]{30,}"),
 )
+REQUIRED_EXECUTABLE_SCRIPTS = {
+    Path("scripts/check-before-commit.sh"),
+    Path("scripts/check-windows-cross.sh"),
+}
 
 
 def git(*arguments: str) -> bytes:
@@ -64,6 +68,18 @@ def check_source_newlines(files: list[Path]) -> None:
             raise SystemExit(f"source file contains CRLF bytes: {path}")
 
 
+def check_executable_scripts(files: list[Path]) -> None:
+    present = set(files)
+    for path in REQUIRED_EXECUTABLE_SCRIPTS:
+        if path not in present:
+            raise SystemExit(f"required local validation script is missing: {path}")
+        executable = git("ls-files", "--stage", "--", os.fspath(path))
+        if executable and not executable.startswith(b"100755 "):
+            raise SystemExit(f"validation script is not executable in Git: {path}")
+        if not os.access(path, os.X_OK):
+            raise SystemExit(f"validation script is not executable locally: {path}")
+
+
 def check_forbidden_dependencies(files: list[Path]) -> None:
     for path in files:
         if path.name != "Cargo.toml":
@@ -91,6 +107,7 @@ def main() -> int:
     files = repository_files()
     check_internal_documents_untracked()
     check_source_newlines(files)
+    check_executable_scripts(files)
     check_forbidden_dependencies(files)
     check_secrets(files)
     print("repository policy checks passed")

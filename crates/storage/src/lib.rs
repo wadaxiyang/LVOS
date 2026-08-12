@@ -1,78 +1,77 @@
-//! Storage boundaries shared by Desktop and Server implementations.
+//! `SQLite` persistence for LVOS Desktop Profiles.
 
-use std::{error::Error, fmt};
+mod installation;
+mod model;
+mod profile;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct MigrationVersion(u32);
+pub use installation::{InstallationMetadata, InstallationStore, Platform};
+pub use model::{
+    Favorite, HistoryEntry, OutboxEvent, OutboxOperation, ProfileMetadata, QueryStats,
+    StoredContent, TranslationSnapshot,
+};
+pub use profile::{BackupArtifact, ProfileDatabase, ProfilePaths, SCHEMA_VERSION};
 
-impl MigrationVersion {
-    #[must_use]
-    pub const fn new(value: u32) -> Self {
-        Self(value)
-    }
+use std::{error::Error, fmt, io};
 
-    #[must_use]
-    pub const fn get(self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Migration {
-    pub version: MigrationVersion,
-    pub name: &'static str,
-}
-
-pub trait MigrationRunner: Send + Sync {
-    /// Returns the most recently applied migration version.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] when schema metadata cannot be read.
-    fn current_version(&self) -> Result<Option<MigrationVersion>, StorageError>;
-
-    /// Creates a coordinated, consistent backup before migration begins.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError::Backup`] when a recoverable backup cannot be completed.
-    fn create_consistent_backup(&self) -> Result<(), StorageError>;
-
-    /// Applies pending migrations strictly in version order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] when migration validation or application fails.
-    fn apply_pending(&self, migrations: &[Migration]) -> Result<MigrationVersion, StorageError>;
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum StorageError {
-    Open,
-    Backup,
-    Migration,
-    Invariant(&'static str),
+    Io(io::Error),
+    Json(serde_json::Error),
+    Sqlite(rusqlite::Error),
+    InvalidIdentifier(&'static str),
+    InvalidData(&'static str),
+    MissingHistory,
+    Migration {
+        version: u32,
+        source: rusqlite::Error,
+    },
+    Backup(Box<StorageError>),
 }
 
 impl fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Open => formatter.write_str("failed to open storage"),
-            Self::Backup => formatter.write_str("failed to create a consistent backup"),
-            Self::Migration => formatter.write_str("failed to apply storage migration"),
-            Self::Invariant(message) => write!(formatter, "storage invariant failed: {message}"),
+            Self::Io(error) => write!(formatter, "storage I/O failed: {error}"),
+            Self::Json(error) => write!(formatter, "storage JSON failed: {error}"),
+            Self::Sqlite(error) => write!(formatter, "SQLite operation failed: {error}"),
+            Self::InvalidIdentifier(kind) => write!(formatter, "invalid {kind} identifier"),
+            Self::InvalidData(message) => write!(formatter, "invalid stored data: {message}"),
+            Self::MissingHistory => formatter.write_str("favorite content is missing from History"),
+            Self::Migration { version, source } => {
+                write!(formatter, "migration {version} failed: {source}")
+            }
+            Self::Backup(error) => write!(formatter, "consistent backup failed: {error}"),
         }
     }
 }
 
-impl Error for StorageError {}
+impl Error for StorageError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Json(error) => Some(error),
+            Self::Sqlite(error) => Some(error),
+            Self::Migration { source, .. } => Some(source),
+            Self::Backup(error) => Some(error),
+            Self::InvalidIdentifier(_) | Self::InvalidData(_) | Self::MissingHistory => None,
+        }
+    }
+}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl From<io::Error> for StorageError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
 
-    #[test]
-    fn migration_versions_are_strictly_orderable() {
-        assert!(MigrationVersion::new(2) > MigrationVersion::new(1));
+impl From<serde_json::Error> for StorageError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+impl From<rusqlite::Error> for StorageError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Sqlite(error)
     }
 }
