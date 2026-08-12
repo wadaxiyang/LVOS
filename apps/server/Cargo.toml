@@ -1,0 +1,19 @@
+[package]
+name = "lvos-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+lvos-auth = { path = "../../crates/auth" }
+lvos-core = { path = "../../crates/core" }
+lvos-storage = { path = "../../crates/storage" }
+lvos-sync = { path = "../../crates/sync" }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
