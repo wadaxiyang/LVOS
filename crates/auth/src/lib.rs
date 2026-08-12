@@ -8,8 +8,7 @@ pub const DEFAULT_REFRESH_SESSION_IDLE_TTL_DAYS: u64 = 90;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CredentialKey {
     GoogleApiKey,
-    TencentSecretId,
-    TencentSecretKey,
+    TencentTokenHubApiKey,
     ServerRefreshToken,
 }
 
@@ -22,6 +21,13 @@ pub struct CredentialScope {
 }
 
 pub trait CredentialStore: Send + Sync {
+    /// Reads the named credential without exposing it through diagnostic formatting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuthError::CredentialStore`] when the native credential store cannot be read.
+    fn get(&self, scope: &CredentialScope) -> Result<Option<Vec<u8>>, AuthError>;
+
     /// Reports whether the named credential exists.
     ///
     /// # Errors

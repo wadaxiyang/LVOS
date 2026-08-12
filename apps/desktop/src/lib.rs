@@ -3,6 +3,7 @@
 mod db_worker;
 mod generation;
 mod lifecycle;
+mod lookup;
 mod ui_bridge;
 
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
@@ -11,4 +12,5 @@ pub use lifecycle::{
     BackgroundProfileServices, DesktopRuntime, ProfileLifecycle, RuntimeError, StartupDisposition,
     SwitchOutcome, acquire_single_instance,
 };
+pub use lookup::{LookupError, LookupMode, LookupOutcome, LookupService};
 pub use ui_bridge::{SlintUiDispatcher, UiDispatchError, UiDispatcher};

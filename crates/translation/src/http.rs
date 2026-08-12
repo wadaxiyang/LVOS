@@ -1,0 +1,167 @@
+use std::{error::Error, fmt, sync::Arc, time::Duration};
+
+use async_trait::async_trait;
+use secrecy::{ExposeSecret, SecretString};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TimeoutConfig {
+    pub connect: Duration,
+    pub request: Duration,
+}
+
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(5),
+            request: Duration::from_secs(15),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HttpMethod {
+    Post,
+}
+
+#[derive(Clone)]
+pub enum HeaderValue {
+    Public(String),
+    Secret(Arc<SecretString>),
+}
+
+impl HeaderValue {
+    fn expose(&self) -> &str {
+        match self {
+            Self::Public(value) => value,
+            Self::Secret(value) => value.expose_secret(),
+        }
+    }
+}
+
+impl fmt::Debug for HeaderValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Public(value) => formatter.debug_tuple("Public").field(value).finish(),
+            Self::Secret(_) => formatter.write_str("Secret([REDACTED])"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct HttpRequest {
+    pub method: HttpMethod,
+    pub url: String,
+    pub headers: Vec<(String, HeaderValue)>,
+    pub body: Vec<u8>,
+    pub request_timeout: Duration,
+}
+
+impl fmt::Debug for HttpRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &redact_query(&self.url))
+            .field("headers", &self.headers)
+            .field("body_length", &self.body.len())
+            .field("request_timeout", &self.request_timeout)
+            .finish()
+    }
+}
+
+fn redact_query(url: &str) -> String {
+    url.split_once('?')
+        .map_or_else(|| url.to_owned(), |(base, _)| format!("{base}?[REDACTED]"))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: Vec<u8>,
+}
+
+#[async_trait]
+pub trait HttpTransport: fmt::Debug + Send + Sync {
+    async fn send(&self, request: HttpRequest) -> Result<HttpResponse, TransportError>;
+}
+
+#[derive(Clone, Debug)]
+pub struct ReqwestTransport {
+    client: reqwest::Client,
+}
+
+impl ReqwestTransport {
+    /// Creates an HTTPS transport with redirects disabled and an explicit connect timeout.
+    ///
+    /// # Errors
+    /// Returns an error when either timeout is zero or the native client cannot be built.
+    pub fn new(timeout: TimeoutConfig) -> Result<Self, TransportError> {
+        if timeout.connect.is_zero() || timeout.request.is_zero() {
+            return Err(TransportError::Configuration);
+        }
+        let provider = rustls::crypto::ring::default_provider();
+        let _ = provider.install_default();
+        let client = reqwest::Client::builder()
+            .connect_timeout(timeout.connect)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| TransportError::Configuration)?;
+        Ok(Self { client })
+    }
+}
+
+#[async_trait]
+impl HttpTransport for ReqwestTransport {
+    async fn send(&self, request: HttpRequest) -> Result<HttpResponse, TransportError> {
+        let mut builder = match request.method {
+            HttpMethod::Post => self.client.post(&request.url),
+        }
+        .timeout(request.request_timeout)
+        .body(request.body);
+        for (name, value) in request.headers {
+            builder = builder.header(name, value.expose());
+        }
+        let response = builder
+            .send()
+            .await
+            .map_err(|error| classify_reqwest_error(&error))?;
+        let status = response.status().as_u16();
+        let body = response
+            .bytes()
+            .await
+            .map_err(|error| classify_reqwest_error(&error))?
+            .to_vec();
+        Ok(HttpResponse { status, body })
+    }
+}
+
+fn classify_reqwest_error(error: &reqwest::Error) -> TransportError {
+    if error.is_timeout() && error.is_connect() {
+        TransportError::ConnectTimeout
+    } else if error.is_timeout() {
+        TransportError::RequestTimeout
+    } else {
+        TransportError::Network
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransportError {
+    Configuration,
+    Network,
+    ConnectTimeout,
+    RequestTimeout,
+}
+
+impl fmt::Display for TransportError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Configuration => "HTTP transport configuration is invalid",
+            Self::Network => "HTTP transport failed",
+            Self::ConnectTimeout => "HTTP connection timed out",
+            Self::RequestTimeout => "HTTP request timed out",
+        })
+    }
+}
+
+impl Error for TransportError {}
