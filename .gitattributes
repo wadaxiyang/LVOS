@@ -1,0 +1,15 @@
+# Keep source files byte-identical across macOS and Windows checkouts.
+* text=auto eol=lf
+
+# Binary assets must never be newline-normalized.
+*.ico binary
+*.icns binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.sqlite3 binary

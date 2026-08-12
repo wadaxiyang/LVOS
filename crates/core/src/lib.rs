@@ -1,6 +1,17 @@
 //! Stable, platform-independent LVOS domain contracts.
 
+mod content;
+mod language;
+mod time;
+
 use std::{error::Error, fmt, future::Future, pin::Pin};
+
+pub use content::{
+    CanonicalContent, ContentKey, PreparedContent, TextKind, ValidationError, ValidationPolicy,
+    prepare_content,
+};
+pub use language::{LanguageCode, LanguageCodeError};
+pub use time::UnixTimestamp;
 
 pub const PRODUCT_NAME: &str = "LVOS";
 pub const FULL_NAME: &str = "Lightweight Vocabulary Overlay & Sync";
