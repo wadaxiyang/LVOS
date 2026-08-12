@@ -424,6 +424,19 @@ impl ProfileDatabase {
         favorite_connection(&self.connection, key)
     }
 
+    /// Searches active Favorites by source and translated text, newest update first.
+    ///
+    /// # Errors
+    /// Returns an error for malformed persisted data or `SQLite` failure.
+    pub fn search_favorites(&self, term: &str, limit: u32) -> Result<Vec<Favorite>, StorageError> {
+        let mut statement = self.connection.prepare(&format!(
+            "{FAVORITE_SELECT_FIELDS} WHERE deleted_at IS NULL AND (source_text LIKE '%' || ?1 || '%' OR translation LIKE '%' || ?1 || '%') ORDER BY updated_at DESC LIMIT ?2"
+        ))?;
+        let rows = statement.query_map(params![term, limit], read_favorite)?;
+        rows.map(|row| row.map_err(StorageError::from).and_then(parse_favorite))
+            .collect()
+    }
+
     /// Reads the current Device contribution and cached Server aggregate.
     ///
     /// # Errors
@@ -671,6 +684,7 @@ fn parse_query_stats(row: StatsRow) -> Result<QueryStats, StorageError> {
     })
 }
 
+const FAVORITE_SELECT_FIELDS: &str = "SELECT content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,created_at,updated_at,deleted_at,entity_revision FROM favorites";
 const FAVORITE_SELECT: &str = "SELECT content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,created_at,updated_at,deleted_at,entity_revision FROM favorites WHERE content_key=?1";
 type FavoriteRow = (
     String,

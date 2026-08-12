@@ -108,6 +108,13 @@ fn history_query_stats_and_outbox_are_deduplicated() {
     database
         .favorite(key, UnixTimestamp::from_seconds(200))
         .unwrap_or_else(|error| unreachable!("favorite: {error}"));
+    assert_eq!(
+        database
+            .search_favorites("不变", 20)
+            .unwrap_or_default()
+            .len(),
+        1
+    );
     for timestamp in 201..210 {
         database
             .favorite(key, UnixTimestamp::from_seconds(timestamp))

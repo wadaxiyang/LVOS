@@ -1,11 +1,17 @@
-use lvos::{DesktopRuntime, SlintUiDispatcher};
+use std::error::Error;
+
+use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 use lvos_core::{PRODUCT_NAME, SOFTWARE_VERSION};
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     init_tracing();
     tracing::info!(version = SOFTWARE_VERSION, "{PRODUCT_NAME} starting");
     let runtime = DesktopRuntime::new(SlintUiDispatcher);
+    let ui = UiController::new()?;
+    ui.show_main_window()?;
+    slint::run_event_loop_until_quit()?;
     runtime.shutdown();
+    Ok(())
 }
 
 fn init_tracing() {

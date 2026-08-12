@@ -20,7 +20,10 @@ authors = ["wadaxiyang"]
 repository = "https://github.com/wadaxiyang/lvos"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Slint's generated item-tree code contains its own tightly scoped unsafe blocks.
+# `deny` keeps handwritten workspace code unsafe-free while allowing the generator's
+# local `allow(unsafe_code)` annotation to take effect.
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
 
