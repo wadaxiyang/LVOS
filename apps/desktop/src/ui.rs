@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use std::cell::RefCell;
 use std::{cell::Cell, error::Error, fmt, rc::Rc};
 
 use lvos_core::ContentKey;
@@ -21,12 +23,72 @@ mod generated {
     slint::include_modules!();
 }
 
-pub use generated::{DeviceRecord, MainWindow, QuickLookupPopup, UiRecord};
+pub use generated::{DeviceRecord, MainWindow, PermissionWindow, QuickLookupPopup, UiRecord};
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    static CAPTURE_POPUP_MONITOR: RefCell<Option<lvos_platform::macos::OutsideClickMonitor>> =
+        const { RefCell::new(None) };
+}
+
+/// Displays a captured source when runtime Provider configuration is not yet available.
+///
+/// # Errors
+/// Returns a platform error if the native Popup cannot be shown.
+#[cfg(target_os = "macos")]
+pub fn show_captured_provider_error(
+    popup: &QuickLookupPopup,
+    source: &str,
+) -> Result<(), UiControllerError> {
+    let (title, detail) = error_copy(LookupCardErrorKind::ProviderConfigurationRequired);
+    popup.set_source_text(source.into());
+    popup.set_error_title(title.into());
+    popup.set_error_detail(detail.into());
+    popup.set_loading(false);
+    popup.set_error_visible(true);
+    popup.set_text_mode(source.split_whitespace().count() > 1);
+    popup.show().map_err(UiControllerError::Platform)?;
+    let popup_bounds = macos_window::show_without_activation_and_place(popup.window())?;
+    let popup_weak = popup.as_weak();
+    let dismiss = std::sync::Arc::new(move || {
+        let popup_weak = popup_weak.clone();
+        if let Err(error) = slint::invoke_from_event_loop(move || {
+            if let Some(popup) = popup_weak.upgrade()
+                && let Err(error) = popup.hide()
+            {
+                tracing::warn!(%error, "failed to hide captured Lookup Card");
+            }
+            CAPTURE_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
+        }) {
+            tracing::warn!(%error, "failed to dispatch captured Popup dismissal");
+        }
+    });
+    let monitor = lvos_platform::macos::OutsideClickMonitor::install(popup_bounds, dismiss)
+        .map_err(|_| macos_window::platform_error("outside-click monitor is unavailable"))?;
+    CAPTURE_POPUP_MONITOR.with(|active| active.borrow_mut().replace(monitor));
+    Ok(())
+}
+
+/// Shows the permission surface as the active, frontmost macOS window.
+///
+/// Permission recovery is an explicit user interaction, so unlike the Lookup Card this window is
+/// intentionally allowed to activate LVOS and take keyboard focus.
+///
+/// # Errors
+/// Returns a platform error when the Slint or native `AppKit` window cannot be shown.
+#[cfg(target_os = "macos")]
+pub fn show_permission_window(permission: &PermissionWindow) -> Result<(), UiControllerError> {
+    permission.show().map_err(UiControllerError::Platform)?;
+    macos_window::show_and_activate(permission.window())
+}
 
 pub struct UiController {
     popup: QuickLookupPopup,
     main_window: MainWindow,
+    permission_window: PermissionWindow,
     popup_focus: Rc<Cell<PopupFocusState>>,
+    #[cfg(target_os = "macos")]
+    outside_click_monitor: Rc<RefCell<Option<lvos_platform::macos::OutsideClickMonitor>>>,
 }
 
 impl fmt::Debug for UiController {
@@ -47,10 +109,15 @@ impl UiController {
         let controller = Self {
             popup: QuickLookupPopup::new().map_err(UiControllerError::Platform)?,
             main_window: MainWindow::new().map_err(UiControllerError::Platform)?,
+            permission_window: PermissionWindow::new().map_err(UiControllerError::Platform)?,
             popup_focus: Rc::new(Cell::new(PopupFocusState::Hidden)),
+            #[cfg(target_os = "macos")]
+            outside_click_monitor: Rc::new(RefCell::new(None)),
         };
         let popup_weak = controller.popup.as_weak();
         let dismiss_focus = Rc::clone(&controller.popup_focus);
+        #[cfg(target_os = "macos")]
+        let dismiss_monitor = Rc::clone(&controller.outside_click_monitor);
         controller.popup.on_dismiss_requested(move || {
             if let Some(popup) = popup_weak.upgrade()
                 && let Err(error) = popup.hide()
@@ -58,6 +125,11 @@ impl UiController {
                 tracing::warn!(%error, "failed to hide Lookup Card");
             }
             dismiss_focus.set(PopupFocusState::Hidden);
+            #[cfg(target_os = "macos")]
+            {
+                dismiss_monitor.borrow_mut().take();
+                CAPTURE_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
+            }
         });
         let interaction_focus = Rc::clone(&controller.popup_focus);
         controller.popup.on_interaction_started(move || {
@@ -95,6 +167,11 @@ impl UiController {
     #[must_use]
     pub fn main_window(&self) -> &MainWindow {
         &self.main_window
+    }
+
+    #[must_use]
+    pub fn permission_window(&self) -> &PermissionWindow {
+        &self.permission_window
     }
 
     #[must_use]
@@ -185,6 +262,29 @@ impl UiController {
     pub fn show_lookup_card(&self, state: &LookupCardState) -> Result<(), UiControllerError> {
         self.apply_lookup_state(state);
         self.popup.show().map_err(UiControllerError::Platform)?;
+        #[cfg(target_os = "macos")]
+        {
+            let popup_bounds =
+                macos_window::show_without_activation_and_place(self.popup.window())?;
+            let popup = self.popup.as_weak();
+            let dismiss = std::sync::Arc::new(move || {
+                let popup = popup.clone();
+                if let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(popup) = popup.upgrade()
+                        && let Err(error) = popup.hide()
+                    {
+                        tracing::warn!(%error, "failed to hide Lookup Card after outside click");
+                    }
+                }) {
+                    tracing::warn!(%error, "failed to dispatch outside-click dismissal");
+                }
+            });
+            let monitor = lvos_platform::macos::OutsideClickMonitor::install(popup_bounds, dismiss)
+                .map_err(|_| {
+                    macos_window::platform_error("outside-click monitor is unavailable")
+                })?;
+            self.outside_click_monitor.borrow_mut().replace(monitor);
+        }
         self.mark_popup_visible_no_activate();
         Ok(())
     }
@@ -195,6 +295,8 @@ impl UiController {
     /// Returns a platform error if the native Popup cannot be hidden.
     pub fn hide_lookup_card(&self) -> Result<(), UiControllerError> {
         self.popup.hide().map_err(UiControllerError::Platform)?;
+        #[cfg(target_os = "macos")]
+        self.outside_click_monitor.borrow_mut().take();
         self.mark_popup_hidden();
         Ok(())
     }
@@ -316,5 +418,90 @@ impl Error for UiControllerError {}
 impl From<slint::PlatformError> for UiControllerError {
     fn from(value: slint::PlatformError) -> Self {
         Self::Platform(value)
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod macos_window {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSView};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    use super::UiControllerError;
+
+    pub(super) fn show_without_activation_and_place(
+        window: &slint::Window,
+    ) -> Result<lvos_platform::LogicalRect, UiControllerError> {
+        let handle = window.window_handle();
+        let raw = handle
+            .window_handle()
+            .map_err(|_| platform_error("native Popup handle is unavailable"))?
+            .as_raw();
+        let RawWindowHandle::AppKit(handle) = raw else {
+            return Err(platform_error("native Popup is not an AppKit window"));
+        };
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        view.window()
+            .ok_or_else(|| platform_error("native Popup NSWindow is unavailable"))?
+            .orderFrontRegardless();
+        let scale = f64::from(window.scale_factor());
+        let size = window.size();
+        let placement = lvos_platform::macos::popup_placement(lvos_platform::LogicalSize {
+            width: f64::from(size.width) / scale,
+            height: f64::from(size.height) / scale,
+        })
+        .map_err(|_| platform_error("Popup placement is unavailable"))?;
+        window.set_position(slint::PhysicalPosition::new(
+            saturating_physical(placement.origin.x, placement.scale_factor),
+            saturating_physical(placement.origin.y, placement.scale_factor),
+        ));
+        Ok(lvos_platform::LogicalRect {
+            origin: placement.origin,
+            size: lvos_platform::LogicalSize {
+                width: f64::from(size.width) / scale,
+                height: f64::from(size.height) / scale,
+            },
+        })
+    }
+
+    pub(super) fn show_and_activate(window: &slint::Window) -> Result<(), UiControllerError> {
+        let handle = window.window_handle();
+        let raw = handle
+            .window_handle()
+            .map_err(|_| platform_error("native permission window handle is unavailable"))?
+            .as_raw();
+        let RawWindowHandle::AppKit(handle) = raw else {
+            return Err(platform_error(
+                "native permission window is not an AppKit window",
+            ));
+        };
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        let native_window = view
+            .window()
+            .ok_or_else(|| platform_error("native permission NSWindow is unavailable"))?;
+        let marker = MainThreadMarker::new().ok_or_else(|| {
+            platform_error("permission window must be activated on the main thread")
+        })?;
+        #[allow(deprecated)]
+        NSApplication::sharedApplication(marker).activateIgnoringOtherApps(true);
+        native_window.makeKeyAndOrderFront(None);
+        Ok(())
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn saturating_physical(value: f64, scale: f64) -> i32 {
+        let physical = value * scale;
+        if physical <= f64::from(i32::MIN) {
+            i32::MIN
+        } else if physical >= f64::from(i32::MAX) {
+            i32::MAX
+        } else {
+            physical.round() as i32
+        }
+    }
+
+    pub(super) fn platform_error(message: &'static str) -> UiControllerError {
+        UiControllerError::Platform(slint::PlatformError::Other(message.into()))
     }
 }

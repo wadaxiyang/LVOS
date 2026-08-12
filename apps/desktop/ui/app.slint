@@ -1,4 +1,4 @@
-import { Button, ComboBox, LineEdit, ScrollView, Spinner, Switch } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, Palette, ScrollView, Spinner, Switch } from "std-widgets.slint";
 
 export struct UiRecord {
     key: string,
@@ -77,6 +77,7 @@ export component QuickLookupPopup inherits Window {
     background: transparent;
     always-on-top: true;
     no-frame: true;
+    init => { Palette.color-scheme = ColorScheme.light; }
 
     in property <string> source-text;
     in property <string> translated-text;
@@ -180,6 +181,44 @@ export component QuickLookupPopup inherits Window {
     }
 }
 
+export component PermissionWindow inherits Window {
+    title: "LVOS Permissions";
+    width: 520px;
+    height: 300px;
+    background: #f8f9fc;
+    init => { Palette.color-scheme = ColorScheme.light; }
+
+    in-out property <string> status-text: "Accessibility permission is required.";
+    callback open-settings;
+    callback check-again;
+    callback restart-requested;
+
+    VerticalLayout {
+        padding: 32px;
+        spacing: 18px;
+        Text { text: "Allow LVOS to capture selected text"; color: #111827; font-size: 23px; font-weight: 700; }
+        Text {
+            text: "macOS requires Accessibility permission before LVOS can send Cmd+C. LVOS only sends it after you press the configured global hotkey.";
+            color: #4b5563;
+            font-size: 14px;
+            wrap: word-wrap;
+        }
+        Rectangle {
+            height: 54px;
+            border-radius: 9px;
+            background: #fff7ed;
+            Text { x: 14px; width: parent.width - 28px; text: root.status-text; color: #9a3412; vertical-alignment: center; wrap: word-wrap; }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 10px;
+            Button { text: "Open Accessibility Settings"; clicked => { root.open-settings(); } }
+            Button { text: "Check Again"; clicked => { root.check-again(); } }
+            Button { text: "Restart LVOS"; clicked => { root.restart-requested(); } }
+        }
+    }
+}
+
 component SidebarButton inherits Rectangle {
     in property <string> label;
     in property <bool> selected;
@@ -220,6 +259,7 @@ export component MainWindow inherits Window {
     width: 980px;
     height: 680px;
     background: #f6f7fb;
+    init => { Palette.color-scheme = ColorScheme.light; }
 
     in-out property <int> active-page: 0;
     in-out property <int> settings-page: 0;
@@ -237,6 +277,9 @@ export component MainWindow inherits Window {
     in-out property <string> settings-error;
     in property <bool> tokenhub-configured;
     in property <bool> google-configured;
+    in-out property <string> global-hotkey: "⌥D";
+    in-out property <bool> start-at-login;
+    in-out property <bool> launch-minimized;
 
     callback history-search(string);
     callback favorites-search(string);
@@ -253,6 +296,9 @@ export component MainWindow inherits Window {
     callback export-data-requested;
     callback import-data-requested;
     callback check-update-requested;
+    callback update-global-hotkey(string) -> string;
+    callback update-start-at-login(bool) -> string;
+    callback update-launch-minimized(bool) -> string;
     HorizontalLayout {
         Rectangle {
             width: 220px;
@@ -350,9 +396,23 @@ export component MainWindow inherits Window {
                                 title: "General";
                                 VerticalLayout { padding: 18px; spacing: 12px;
                                     Text { text: "Global hotkey"; font-weight: 600; }
-                                    LineEdit { text: "Ctrl+Alt+L"; }
-                                    Switch { text: "Start at login"; }
-                                    Switch { text: "Launch minimized to tray"; }
+                                    hotkey := LineEdit { text <=> root.global-hotkey; }
+                                    if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
+                                    HorizontalLayout { alignment: end;
+                                        Button { text: "Save Hotkey"; clicked => {
+                                            root.settings-error = root.update-global-hotkey(hotkey.text);
+                                        } }
+                                    }
+                                    login-start := Switch {
+                                        text: "Start at login";
+                                        checked <=> root.start-at-login;
+                                        toggled => { root.settings-error = root.update-start-at-login(self.checked); }
+                                    }
+                                    minimized := Switch {
+                                        text: "Launch minimized to tray";
+                                        checked <=> root.launch-minimized;
+                                        toggled => { root.settings-error = root.update-launch-minimized(self.checked); }
+                                    }
                                 }
                             }
                         }

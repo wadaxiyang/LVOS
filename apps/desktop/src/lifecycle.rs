@@ -182,6 +182,11 @@ impl<U: UiDispatcher> DesktopRuntime<U> {
         self.runtime.spawn(future)
     }
 
+    #[must_use]
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+
     /// Sends a completed background result to the UI event-loop thread.
     ///
     /// # Errors

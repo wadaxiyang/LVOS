@@ -19,6 +19,7 @@ SECRET_PATTERNS = (
 )
 REQUIRED_EXECUTABLE_SCRIPTS = {
     Path("scripts/check-before-commit.sh"),
+    Path("scripts/package-macos-app.sh"),
     Path("scripts/check-windows-cross.sh"),
 }
 

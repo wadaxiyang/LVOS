@@ -8,7 +8,28 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+async-trait.workspace = true
+lvos-auth = { path = "../auth" }
 lvos-core = { path = "../core" }
+tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+clipboard-rs = "0.3.5"
+fs2 = "0.4.3"
+global-hotkey = "0.8.0"
+keyring = { version = "4.1.6", default-features = false, features = ["v1"] }
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSPasteboard", "NSScreen", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation"] }
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSDictionary", "NSGeometry", "NSString", "NSThread", "NSURL"] }
+notify-rust = "4.18.0"
+tray-icon = { version = "0.24.2", default-features = false }
+
+[dev-dependencies]
+tempfile = "3.27.0"
 
 [lints]
 workspace = true
