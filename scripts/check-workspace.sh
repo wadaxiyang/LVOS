@@ -33,7 +33,8 @@ data = json.load(sys.stdin)
 for package in data["packages"]:
     assert package["version"] == "0.1.0", package
     assert package["license"] is None, package
-    assert package["license_file"].endswith("/LICENSE"), package
+    license_file = package["license_file"].replace("\\", "/")
+    assert license_file.endswith("/LICENSE"), package
 ' 
 
 test -s LICENSE

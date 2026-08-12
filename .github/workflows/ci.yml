@@ -27,5 +27,5 @@ jobs:
       - name: Verify repository policy
         shell: bash
         run: |
-          ./scripts/check-repository-policy.sh
+          python3 scripts/check_repository_policy.py
           ./scripts/check-workspace.sh
