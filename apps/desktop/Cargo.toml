@@ -14,8 +14,15 @@ lvos-platform = { path = "../../crates/platform" }
 lvos-storage = { path = "../../crates/storage" }
 lvos-sync = { path = "../../crates/sync" }
 lvos-translation = { path = "../../crates/translation" }
+slint.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
 
 [lints]
 workspace = true

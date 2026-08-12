@@ -1,8 +1,11 @@
+use lvos::{DesktopRuntime, SlintUiDispatcher};
 use lvos_core::{PRODUCT_NAME, SOFTWARE_VERSION};
 
 fn main() {
     init_tracing();
     tracing::info!(version = SOFTWARE_VERSION, "{PRODUCT_NAME} starting");
+    let runtime = DesktopRuntime::new(SlintUiDispatcher);
+    runtime.shutdown();
 }
 
 fn init_tracing() {

@@ -7,7 +7,7 @@ use std::{
 };
 
 use lvos_core::{ContentKey, LanguageCode, SOFTWARE_VERSION, TextKind, UnixTimestamp};
-use rusqlite::{Connection, OptionalExtension, Transaction, backup::Backup, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, backup::Backup, params};
 use uuid::Uuid;
 
 use crate::{
@@ -136,6 +136,15 @@ pub struct ProfileDatabase {
 }
 
 impl ProfileDatabase {
+    /// Reads Profile metadata without opening the database for runtime use or running migrations.
+    ///
+    /// # Errors
+    /// Returns an error for an unreadable, unmigrated, or malformed Profile.
+    pub fn inspect_metadata(path: &Path) -> Result<ProfileMetadata, StorageError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        read_profile_metadata(&connection)
+    }
+
     /// Opens one Desktop Profile and applies migrations after a consistent backup.
     ///
     /// # Errors
@@ -195,21 +204,45 @@ impl ProfileDatabase {
     /// # Errors
     /// Returns an error for missing or malformed persisted data.
     pub fn metadata(&self) -> Result<ProfileMetadata, StorageError> {
-        self.connection.query_row(
-            "SELECT profile_id, user_id, username, device_id, platform, server_origin, last_server_revision, created_at, updated_at FROM profile_meta WHERE singleton_id = 1",
-            [],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get(2)?, row.get::<_, String>(3)?, row.get(4)?, row.get(5)?, row.get::<_, i64>(6)?, row.get(7)?, row.get(8)?)),
-        ).map_err(StorageError::from).and_then(|row| Ok(ProfileMetadata {
-            profile_id: parse_uuid(&row.0, "profile")?,
-            user_id: row.1.as_deref().map(|value| parse_uuid(value, "user")).transpose()?,
-            username: row.2,
-            device_id: parse_uuid(&row.3, "device")?,
-            platform: row.4,
-            server_origin: row.5,
-            last_server_revision: to_u64(row.6)?,
-            created_at: UnixTimestamp::from_seconds(row.7),
-            updated_at: UnixTimestamp::from_seconds(row.8),
-        }))
+        read_profile_metadata(&self.connection)
+    }
+
+    /// Returns whether the active Profile has no Server User binding.
+    ///
+    /// # Errors
+    /// Returns an error for malformed persisted data or `SQLite` failure.
+    pub fn is_unbound(&self) -> Result<bool, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT user_id IS NULL FROM profile_meta WHERE singleton_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(StorageError::from)
+    }
+
+    /// Updates the descriptive account fields of an already bound Profile.
+    ///
+    /// # Errors
+    /// Returns an error if the Profile is unbound, belongs to another User, or persistence fails.
+    pub fn update_account_identity(
+        &mut self,
+        user_id: Uuid,
+        username: &str,
+        server_origin: &str,
+        now: UnixTimestamp,
+    ) -> Result<(), StorageError> {
+        let existing = self.metadata()?;
+        if existing.user_id != Some(user_id) {
+            return Err(StorageError::InvalidData(
+                "Profile User identity does not match",
+            ));
+        }
+        self.connection.execute(
+            "UPDATE profile_meta SET username=?1,server_origin=?2,updated_at=?3 WHERE singleton_id=1",
+            params![username,server_origin,now.as_seconds()],
+        )?;
+        Ok(())
     }
 
     /// Records a successful lookup and coalesces `QueryStats` only after the Content entered the Favorite domain.
@@ -879,6 +912,24 @@ fn upsert_or_validate_profile(
     }
     connection.execute("INSERT INTO profile_meta (singleton_id,profile_id,user_id,username,device_id,platform,server_origin,last_server_revision,created_at,updated_at) VALUES (1,?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![metadata.profile_id.to_string(),metadata.user_id.map(|value| value.to_string()),metadata.username,metadata.device_id.to_string(),metadata.platform,metadata.server_origin,to_i64(metadata.last_server_revision)?,metadata.created_at.as_seconds(),metadata.updated_at.as_seconds()])?;
     Ok(())
+}
+
+fn read_profile_metadata(connection: &Connection) -> Result<ProfileMetadata, StorageError> {
+    connection.query_row(
+        "SELECT profile_id, user_id, username, device_id, platform, server_origin, last_server_revision, created_at, updated_at FROM profile_meta WHERE singleton_id = 1",
+        [],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get(2)?, row.get::<_, String>(3)?, row.get(4)?, row.get(5)?, row.get::<_, i64>(6)?, row.get(7)?, row.get(8)?)),
+    ).map_err(StorageError::from).and_then(|row| Ok(ProfileMetadata {
+        profile_id: parse_uuid(&row.0, "profile")?,
+        user_id: row.1.as_deref().map(|value| parse_uuid(value, "user")).transpose()?,
+        username: row.2,
+        device_id: parse_uuid(&row.3, "device")?,
+        platform: row.4,
+        server_origin: row.5,
+        last_server_revision: to_u64(row.6)?,
+        created_at: UnixTimestamp::from_seconds(row.7),
+        updated_at: UnixTimestamp::from_seconds(row.8),
+    }))
 }
 
 fn validate_profile_metadata(metadata: &ProfileMetadata) -> Result<(), StorageError> {

@@ -5,12 +5,20 @@ use std::{error::Error, fmt};
 pub const DEFAULT_ACCESS_TOKEN_TTL_MINUTES: u64 = 60;
 pub const DEFAULT_REFRESH_SESSION_IDLE_TTL_DAYS: u64 = 90;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CredentialKey {
     GoogleApiKey,
     TencentSecretId,
     TencentSecretKey,
     ServerRefreshToken,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct CredentialScope {
+    pub server_origin: String,
+    pub user_id: String,
+    pub device_id: String,
+    pub key: CredentialKey,
 }
 
 pub trait CredentialStore: Send + Sync {
@@ -19,21 +27,21 @@ pub trait CredentialStore: Send + Sync {
     /// # Errors
     ///
     /// Returns [`AuthError::CredentialStore`] when the native credential store cannot be read.
-    fn contains(&self, key: CredentialKey) -> Result<bool, AuthError>;
+    fn contains(&self, scope: &CredentialScope) -> Result<bool, AuthError>;
 
     /// Replaces the named credential with the supplied secret bytes.
     ///
     /// # Errors
     ///
     /// Returns [`AuthError::CredentialStore`] when the native credential store cannot persist it.
-    fn set(&self, key: CredentialKey, secret: &[u8]) -> Result<(), AuthError>;
+    fn set(&self, scope: &CredentialScope, secret: &[u8]) -> Result<(), AuthError>;
 
     /// Removes the named credential when present.
     ///
     /// # Errors
     ///
     /// Returns [`AuthError::CredentialStore`] when the native credential store cannot remove it.
-    fn delete(&self, key: CredentialKey) -> Result<(), AuthError>;
+    fn delete(&self, scope: &CredentialScope) -> Result<(), AuthError>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
