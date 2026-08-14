@@ -1,8 +1,8 @@
 //! Windows 11 `x86_64` native platform adapters.
 //!
-//! Win32, COM, OLE, and raw handle access is intentionally contained in this module. The
-//! selection capture operation initializes one short-lived STA apartment, retains the complete
-//! OLE `IDataObject`, and restores it only while the clipboard sequence still belongs to LVOS.
+//! Win32 and raw handle access is intentionally contained in this module. Selection capture copies
+//! bounded, safely lockable `HGLOBAL` formats into LVOS-owned memory before changing clipboard
+//! ownership, then restores those formats only while the clipboard sequence still belongs to LVOS.
 
 #![allow(unsafe_code)]
 

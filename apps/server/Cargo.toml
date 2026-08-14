@@ -8,12 +8,26 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+argon2.workspace = true
+axum.workspace = true
+dotenvy.workspace = true
 lvos-auth = { path = "../../crates/auth" }
 lvos-core = { path = "../../crates/core" }
 lvos-storage = { path = "../../crates/storage" }
 lvos-sync = { path = "../../crates/sync" }
+rusqlite.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+serde_json.workspace = true
+tower.workspace = true
 
 [lints]
 workspace = true
