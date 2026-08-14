@@ -1,0 +1,53 @@
+name: lvos
+
+services:
+  lvos-server:
+    image: lvos-server:local
+    build:
+      context: .
+      args:
+        LVOS_DOCKER_RUST_IMAGE: ${LVOS_DOCKER_RUST_IMAGE:-docker.m.daocloud.io/library/rust:1.94.1-bookworm}
+        LVOS_DOCKER_RUNTIME_IMAGE: ${LVOS_DOCKER_RUNTIME_IMAGE:-docker.m.daocloud.io/library/debian:bookworm-slim}
+        LVOS_CARGO_REGISTRY_INDEX: ${LVOS_CARGO_REGISTRY_INDEX:-sparse+https://rsproxy.cn/index/}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    ports:
+      - "127.0.0.1:${LVOS_SERVER_HOST_PORT:-7770}:7770"
+    environment:
+      LVOS_APP_ENV: production
+      LVOS_BIND_ADDR: 0.0.0.0:7770
+      LVOS_DATABASE_URL: sqlite:///var/lib/lvos/lvos.sqlite3
+      LVOS_PUBLIC_SERVER_URL: ${LVOS_PUBLIC_SERVER_URL:-https://lvos.niuniu770.site}
+      LVOS_BOOTSTRAP_DEFAULT_USER: ${LVOS_BOOTSTRAP_DEFAULT_USER:-true}
+      LVOS_DEFAULT_USERNAME: ${LVOS_DEFAULT_USERNAME:-default}
+      LVOS_DEFAULT_PASSWORD: ${LVOS_DEFAULT_PASSWORD:?Set a unique LVOS_DEFAULT_PASSWORD of at least 12 characters}
+      LVOS_ACCESS_TOKEN_TTL_MINUTES: ${LVOS_ACCESS_TOKEN_TTL_MINUTES:-60}
+      LVOS_REFRESH_SESSION_IDLE_TTL_DAYS: ${LVOS_REFRESH_SESSION_IDLE_TTL_DAYS:-90}
+      LVOS_LOGIN_RATE_LIMIT_ENABLED: ${LVOS_LOGIN_RATE_LIMIT_ENABLED:-true}
+      LVOS_LOGIN_RATE_LIMIT_MAX_FAILURES: ${LVOS_LOGIN_RATE_LIMIT_MAX_FAILURES:-5}
+      LVOS_LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LVOS_LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
+      LVOS_MAX_REQUEST_BODY_BYTES: ${LVOS_MAX_REQUEST_BODY_BYTES:-1048576}
+      LVOS_BACKUP_ENABLED: ${LVOS_BACKUP_ENABLED:-true}
+      LVOS_BACKUP_DIR: /var/lib/lvos/backups
+      LVOS_BACKUP_RETENTION_COUNT: ${LVOS_BACKUP_RETENTION_COUNT:-14}
+      LVOS_BACKUP_INTERVAL_HOURS: ${LVOS_BACKUP_INTERVAL_HOURS:-24}
+    volumes:
+      - lvos-data:/var/lib/lvos
+    healthcheck:
+      test: ["CMD", "lvos-server", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 30s
+
+volumes:
+  lvos-data:
+    name: lvos-data

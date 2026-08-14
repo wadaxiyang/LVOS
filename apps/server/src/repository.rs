@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -8,49 +8,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use uuid::Uuid;
 
-const SERVER_SCHEMA_V1: &str = r"
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    applied_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    sync_revision INTEGER NOT NULL DEFAULT 0 CHECK(sync_revision >= 0),
-    created_at INTEGER NOT NULL,
-    disabled_at INTEGER NULL
-);
-CREATE TABLE IF NOT EXISTS devices (
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    platform TEXT NOT NULL CHECK(platform IN ('windows', 'macos')),
-    device_name TEXT NULL,
-    created_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
-    revoked_at INTEGER NULL,
-    PRIMARY KEY (user_id, device_id),
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    access_token_hash TEXT NOT NULL UNIQUE,
-    refresh_token_hash TEXT NOT NULL UNIQUE,
-    access_expires_at INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    last_refreshed_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
-    revoked_at INTEGER NULL,
-    FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id)
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_device
-    ON sessions(user_id, device_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_refresh_hash
-    ON sessions(refresh_token_hash);
-";
+use crate::storage;
 
 #[derive(Clone)]
 pub struct ServerRepository {
@@ -105,12 +63,17 @@ pub struct DeviceRecord {
 }
 
 impl ServerRepository {
-    /// Opens a persistent `SQLite` repository and applies the Stage 08 identity schema.
+    /// Opens a persistent `SQLite` repository, backs up pending schemas, and migrates atomically.
     ///
     /// # Errors
     /// Returns a database error when the URL is invalid or `SQLite` initialization fails.
-    pub fn open(database_url: &str, now: i64) -> Result<Self, RepositoryError> {
-        let path = sqlite_path(database_url)?;
+    pub fn open(
+        database_url: &str,
+        backup_dir: &Path,
+        retention_count: usize,
+        now: i64,
+    ) -> Result<Self, RepositoryError> {
+        let path = storage::sqlite_path(database_url)?;
         if path != Path::new(":memory:")
             && let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
@@ -118,7 +81,7 @@ impl ServerRepository {
             std::fs::create_dir_all(parent).map_err(|_| RepositoryError::Database)?;
         }
         let connection = Connection::open(path).map_err(|_| RepositoryError::Database)?;
-        Self::from_connection(connection, now)
+        Self::from_connection(connection, Some(backup_dir), retention_count, now)
     }
 
     /// Creates a shared in-memory repository for integration tests.
@@ -127,25 +90,62 @@ impl ServerRepository {
     /// Returns a database error if the schema cannot be initialized.
     pub fn in_memory(now: i64) -> Result<Self, RepositoryError> {
         let connection = Connection::open_in_memory().map_err(|_| RepositoryError::Database)?;
-        Self::from_connection(connection, now)
+        Self::from_connection(connection, None, 1, now)
     }
 
-    fn from_connection(connection: Connection, now: i64) -> Result<Self, RepositoryError> {
-        connection
-            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-            .map_err(|_| RepositoryError::Database)?;
-        connection
-            .execute_batch(SERVER_SCHEMA_V1)
-            .map_err(|_| RepositoryError::Database)?;
-        connection
-            .execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, name, applied_at) VALUES(1, 'server_identity_auth', ?1)",
-                [now],
-            )
-            .map_err(|_| RepositoryError::Database)?;
+    fn from_connection(
+        mut connection: Connection,
+        backup_dir: Option<&Path>,
+        retention_count: usize,
+        now: i64,
+    ) -> Result<Self, RepositoryError> {
+        storage::initialize(&mut connection, backup_dir, retention_count, now)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
+    }
+
+    /// Creates a transactionally consistent `SQLite` backup and applies retention.
+    ///
+    /// # Errors
+    /// Returns an error when the repository cannot be locked, copied, verified, or retained.
+    pub fn backup(
+        &self,
+        backup_dir: &Path,
+        retention_count: usize,
+        reason: &str,
+        now: i64,
+    ) -> Result<PathBuf, RepositoryError> {
+        let connection = self.lock()?;
+        let schema_version = connection
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| RepositoryError::Backup)?;
+        storage::create_backup(
+            &connection,
+            backup_dir,
+            retention_count,
+            schema_version,
+            reason,
+            now,
+        )
+    }
+
+    /// Restores an offline persistent database after preserving its current state.
+    ///
+    /// # Errors
+    /// Returns an error when either database cannot be verified or copied.
+    pub fn restore(
+        database_url: &str,
+        source_path: &Path,
+        backup_dir: &Path,
+        retention_count: usize,
+        now: i64,
+    ) -> Result<PathBuf, RepositoryError> {
+        storage::restore_database(database_url, source_path, backup_dir, retention_count, now)
     }
 
     pub(crate) fn bootstrap_user(
@@ -532,19 +532,13 @@ fn refresh_identity(
         .map_err(|_| RepositoryError::Database)
 }
 
-fn sqlite_path(database_url: &str) -> Result<&Path, RepositoryError> {
-    let value = database_url
-        .strip_prefix("sqlite://")
-        .unwrap_or(database_url);
-    if value.is_empty() {
-        return Err(RepositoryError::Database);
-    }
-    Ok(Path::new(value))
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RepositoryError {
     Database,
+    Migration,
+    Backup,
+    Restore,
+    Integrity,
     NotFound,
     SessionInvalid,
     AccessExpired,
@@ -558,6 +552,10 @@ impl fmt::Display for RepositoryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Database => "the authentication repository operation failed",
+            Self::Migration => "the server database migration failed; startup was refused",
+            Self::Backup => "the server database backup failed",
+            Self::Restore => "the server database restore failed",
+            Self::Integrity => "the server database integrity check failed",
             Self::NotFound => "the requested resource was not found",
             Self::SessionInvalid => "the authentication session is invalid",
             Self::AccessExpired => "the access token expired",

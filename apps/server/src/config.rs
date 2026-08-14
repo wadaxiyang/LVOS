@@ -1,4 +1,4 @@
-use std::{fmt, net::SocketAddr, num::ParseIntError};
+use std::{fmt, net::SocketAddr, num::ParseIntError, path::PathBuf};
 
 use lvos_auth::{DEFAULT_ACCESS_TOKEN_TTL_MINUTES, DEFAULT_REFRESH_SESSION_IDLE_TTL_DAYS};
 use lvos_core::{DEFAULT_SERVER_PORT, DEFAULT_SERVER_URL};
@@ -28,6 +28,10 @@ pub struct ServerConfig {
     pub login_rate_limit_max_failures: u32,
     pub login_rate_limit_window_seconds: i64,
     pub max_request_body_bytes: usize,
+    pub backup_enabled: bool,
+    pub backup_dir: PathBuf,
+    pub backup_retention_count: usize,
+    pub backup_interval_seconds: u64,
 }
 
 impl fmt::Debug for ServerConfig {
@@ -56,6 +60,10 @@ impl fmt::Debug for ServerConfig {
                 &self.login_rate_limit_window_seconds,
             )
             .field("max_request_body_bytes", &self.max_request_body_bytes)
+            .field("backup_enabled", &self.backup_enabled)
+            .field("backup_dir", &self.backup_dir)
+            .field("backup_retention_count", &self.backup_retention_count)
+            .field("backup_interval_seconds", &self.backup_interval_seconds)
             .finish()
     }
 }
@@ -107,6 +115,13 @@ impl ServerConfig {
                 1_048_576,
             )?)
             .map_err(|_| ConfigError::InvalidNumber)?,
+            backup_enabled: env_bool("LVOS_BACKUP_ENABLED", true)?,
+            backup_dir: PathBuf::from(env_string("LVOS_BACKUP_DIR", "./backups")),
+            backup_retention_count: usize::try_from(env_u64("LVOS_BACKUP_RETENTION_COUNT", 14)?)
+                .map_err(|_| ConfigError::InvalidNumber)?,
+            backup_interval_seconds: env_u64("LVOS_BACKUP_INTERVAL_HOURS", 24)?
+                .checked_mul(60 * 60)
+                .ok_or(ConfigError::InvalidNumber)?,
         };
         config.validate()?;
         Ok(config)
@@ -125,6 +140,9 @@ impl ServerConfig {
             || self.login_rate_limit_max_failures == 0
             || self.login_rate_limit_window_seconds <= 0
             || self.max_request_body_bytes == 0
+            || self.backup_dir.as_os_str().is_empty()
+            || self.backup_retention_count == 0
+            || self.backup_interval_seconds == 0
         {
             return Err(ConfigError::InvalidBoundary);
         }
@@ -254,6 +272,10 @@ mod tests {
             login_rate_limit_max_failures: 5,
             login_rate_limit_window_seconds: 60,
             max_request_body_bytes: 1_048_576,
+            backup_enabled: true,
+            backup_dir: PathBuf::from("./backups"),
+            backup_retention_count: 14,
+            backup_interval_seconds: 24 * 60 * 60,
         }
     }
 

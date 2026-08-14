@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 
 use axum::{
     body::Body,
@@ -25,6 +26,10 @@ fn test_config() -> ServerConfig {
         login_rate_limit_max_failures: 5,
         login_rate_limit_window_seconds: 60,
         max_request_body_bytes: 1_048_576,
+        backup_enabled: true,
+        backup_dir: PathBuf::from("./backups"),
+        backup_retention_count: 14,
+        backup_interval_seconds: 24 * 60 * 60,
     }
 }
 

@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod backup;
 mod config;
 mod repository;
+mod storage;
 
 use std::{
     collections::HashMap,
@@ -24,6 +26,7 @@ use sha2::{Digest, Sha256};
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use uuid::Uuid;
 
+pub use backup::BackupService;
 pub use config::{AppEnvironment, ConfigError, ServerConfig};
 pub use repository::{DeviceRecord, RepositoryError, ServerRepository};
 use repository::{Principal, SessionIdentity};
@@ -635,7 +638,11 @@ impl From<RepositoryError> for ApiError {
             | RepositoryError::SessionInvalid
             | RepositoryError::SessionRevoked
             | RepositoryError::UserDisabled => Self::invalid_session(),
-            RepositoryError::Database => Self::internal(),
+            RepositoryError::Database
+            | RepositoryError::Migration
+            | RepositoryError::Backup
+            | RepositoryError::Restore
+            | RepositoryError::Integrity => Self::internal(),
         }
     }
 }

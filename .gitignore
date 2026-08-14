@@ -11,6 +11,8 @@
 
 # Rust and editor artifacts.
 /target/
+__pycache__/
+*.py[cod]
 **/*.rs.bk
 .DS_Store
 .idea/

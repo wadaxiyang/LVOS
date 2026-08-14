@@ -36,7 +36,8 @@ def git(*arguments: str) -> bytes:
 def repository_files() -> list[Path]:
     """Return tracked and non-ignored untracked files, preserving unusual names."""
     output = git("ls-files", "-co", "--exclude-standard", "-z")
-    return [Path(os.fsdecode(name)) for name in output.split(b"\0") if name]
+    paths = [Path(os.fsdecode(name)) for name in output.split(b"\0") if name]
+    return [path for path in paths if path.exists()]
 
 
 def check_internal_documents_untracked() -> None:

@@ -29,6 +29,10 @@ REQUIRED_ENVIRONMENT_KEYS = {
     "LVOS_REFRESH_SESSION_IDLE_TTL_DAYS",
     "LVOS_LOGIN_RATE_LIMIT_MAX_FAILURES",
     "LVOS_LOGIN_RATE_LIMIT_WINDOW_SECONDS",
+    "LVOS_BACKUP_INTERVAL_HOURS",
+    "LVOS_DOCKER_RUST_IMAGE",
+    "LVOS_DOCKER_RUNTIME_IMAGE",
+    "LVOS_CARGO_REGISTRY_INDEX",
 }
 
 
@@ -74,7 +78,16 @@ def check_packages(metadata: dict[str, object]) -> None:
 
 
 def check_required_files() -> None:
-    for name in ("LICENSE", ".env.example"):
+    for name in (
+        "LICENSE",
+        ".env.example",
+        ".dockerignore",
+        "Cargo.server.lock",
+        "Cargo.server.toml",
+        "DEPLOYMENT.md",
+        "Dockerfile",
+        "compose.yaml",
+    ):
         path = Path(name)
         if not path.is_file() or path.stat().st_size == 0:
             raise SystemExit(f"required file is missing or empty: {name}")
