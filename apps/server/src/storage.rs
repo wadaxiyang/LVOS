@@ -54,6 +54,74 @@ CREATE INDEX IF NOT EXISTS idx_sessions_refresh_hash
     ON sessions(refresh_token_hash);
 ";
 
+pub(crate) const SERVER_SCHEMA_V2: &str = r"
+CREATE TABLE favorites (
+    user_id TEXT NOT NULL,
+    content_key TEXT NOT NULL CHECK(length(content_key) = 64),
+    key_version INTEGER NOT NULL CHECK(key_version > 0),
+    kind TEXT NOT NULL CHECK(kind IN ('word', 'text')),
+    source_lang TEXT NOT NULL,
+    target_lang TEXT NOT NULL,
+    source_text TEXT NOT NULL,
+    canonical_text TEXT NOT NULL,
+    translation TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    favorited_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER NULL,
+    entity_revision INTEGER NOT NULL CHECK(entity_revision > 0),
+    server_received_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, content_key),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+CREATE INDEX idx_server_favorites_active
+    ON favorites(user_id, deleted_at, favorited_at DESC);
+
+CREATE TABLE device_query_stats (
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    content_key TEXT NOT NULL,
+    query_count INTEGER NOT NULL CHECK(query_count >= 0),
+    first_queried_at INTEGER NOT NULL,
+    last_queried_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, device_id, content_key),
+    FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id),
+    FOREIGN KEY (user_id, content_key) REFERENCES favorites(user_id, content_key)
+);
+CREATE INDEX idx_device_query_stats_content
+    ON device_query_stats(user_id, content_key);
+
+CREATE TABLE processed_sync_events (
+    user_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    event_fingerprint TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    ack_status TEXT NOT NULL CHECK(ack_status IN ('applied', 'no_change')),
+    entity_revision INTEGER NULL,
+    user_revision INTEGER NOT NULL CHECK(user_revision >= 0),
+    aggregate_query_count INTEGER NULL,
+    aggregate_first_queried_at INTEGER NULL,
+    aggregate_last_queried_at INTEGER NULL,
+    processed_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, event_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE change_log (
+    user_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    content_key TEXT NOT NULL,
+    entity_revision INTEGER NOT NULL CHECK(entity_revision > 0),
+    operation TEXT NOT NULL CHECK(operation IN ('favorite_upsert', 'favorite_delete', 'query_stats_upsert')),
+    changed_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, revision),
+    FOREIGN KEY (user_id, content_key) REFERENCES favorites(user_id, content_key)
+);
+CREATE INDEX idx_change_log_content
+    ON change_log(user_id, content_key, revision);
+";
+
 #[derive(Clone, Copy)]
 struct Migration {
     version: i64,
@@ -61,11 +129,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "server_identity_auth",
-    sql: SERVER_SCHEMA_V1,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "server_identity_auth",
+        sql: SERVER_SCHEMA_V1,
+    },
+    Migration {
+        version: 2,
+        name: "server_sync_core",
+        sql: SERVER_SCHEMA_V2,
+    },
+];
 
 pub(crate) fn sqlite_path(database_url: &str) -> Result<&Path, RepositoryError> {
     let value = database_url
@@ -378,7 +453,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap_or_else(|_| unreachable!());
-        assert_eq!(migrated, 1);
+        assert_eq!(migrated, 2);
         drop(backup);
         drop(connection);
         fs::remove_dir_all(root).unwrap_or_else(|_| unreachable!());
@@ -443,6 +518,10 @@ mod tests {
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(username, "restored");
         assert!(first.starts_with(&backup_dir));
+        // Windows does not allow removing a SQLite file while a Connection still owns a handle.
+        // Keep teardown deterministic on every target instead of relying on end-of-scope drops.
+        drop(restored);
+        drop(source);
         fs::remove_dir_all(root).unwrap_or_else(|_| unreachable!());
     }
 }

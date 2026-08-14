@@ -28,6 +28,10 @@ pub struct ServerConfig {
     pub login_rate_limit_max_failures: u32,
     pub login_rate_limit_window_seconds: i64,
     pub max_request_body_bytes: usize,
+    pub max_sync_body_bytes: usize,
+    pub max_sync_events_per_batch: usize,
+    pub sync_changes_default_limit: usize,
+    pub sync_changes_max_limit: usize,
     pub backup_enabled: bool,
     pub backup_dir: PathBuf,
     pub backup_retention_count: usize,
@@ -60,6 +64,13 @@ impl fmt::Debug for ServerConfig {
                 &self.login_rate_limit_window_seconds,
             )
             .field("max_request_body_bytes", &self.max_request_body_bytes)
+            .field("max_sync_body_bytes", &self.max_sync_body_bytes)
+            .field("max_sync_events_per_batch", &self.max_sync_events_per_batch)
+            .field(
+                "sync_changes_default_limit",
+                &self.sync_changes_default_limit,
+            )
+            .field("sync_changes_max_limit", &self.sync_changes_max_limit)
             .field("backup_enabled", &self.backup_enabled)
             .field("backup_dir", &self.backup_dir)
             .field("backup_retention_count", &self.backup_retention_count)
@@ -115,6 +126,20 @@ impl ServerConfig {
                 1_048_576,
             )?)
             .map_err(|_| ConfigError::InvalidNumber)?,
+            max_sync_body_bytes: usize::try_from(env_u64("LVOS_MAX_SYNC_BODY_BYTES", 1_048_576)?)
+                .map_err(|_| ConfigError::InvalidNumber)?,
+            max_sync_events_per_batch: usize::try_from(env_u64(
+                "LVOS_MAX_SYNC_EVENTS_PER_BATCH",
+                500,
+            )?)
+            .map_err(|_| ConfigError::InvalidNumber)?,
+            sync_changes_default_limit: usize::try_from(env_u64(
+                "LVOS_SYNC_CHANGES_DEFAULT_LIMIT",
+                100,
+            )?)
+            .map_err(|_| ConfigError::InvalidNumber)?,
+            sync_changes_max_limit: usize::try_from(env_u64("LVOS_SYNC_CHANGES_MAX_LIMIT", 500)?)
+                .map_err(|_| ConfigError::InvalidNumber)?,
             backup_enabled: env_bool("LVOS_BACKUP_ENABLED", true)?,
             backup_dir: PathBuf::from(env_string("LVOS_BACKUP_DIR", "./backups")),
             backup_retention_count: usize::try_from(env_u64("LVOS_BACKUP_RETENTION_COUNT", 14)?)
@@ -140,6 +165,11 @@ impl ServerConfig {
             || self.login_rate_limit_max_failures == 0
             || self.login_rate_limit_window_seconds <= 0
             || self.max_request_body_bytes == 0
+            || self.max_sync_body_bytes == 0
+            || self.max_sync_events_per_batch == 0
+            || self.sync_changes_default_limit == 0
+            || self.sync_changes_max_limit == 0
+            || self.sync_changes_default_limit > self.sync_changes_max_limit
             || self.backup_dir.as_os_str().is_empty()
             || self.backup_retention_count == 0
             || self.backup_interval_seconds == 0
@@ -272,6 +302,10 @@ mod tests {
             login_rate_limit_max_failures: 5,
             login_rate_limit_window_seconds: 60,
             max_request_body_bytes: 1_048_576,
+            max_sync_body_bytes: 1_048_576,
+            max_sync_events_per_batch: 500,
+            sync_changes_default_limit: 100,
+            sync_changes_max_limit: 500,
             backup_enabled: true,
             backup_dir: PathBuf::from("./backups"),
             backup_retention_count: 14,

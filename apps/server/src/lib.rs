@@ -4,6 +4,8 @@ mod backup;
 mod config;
 mod repository;
 mod storage;
+mod sync_api;
+mod sync_repository;
 
 use std::{
     collections::HashMap,
@@ -19,7 +21,7 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -42,6 +44,7 @@ struct AppState {
     config: Arc<ServerConfig>,
     limiter: Arc<LoginRateLimiter>,
     dummy_password_hash: Arc<String>,
+    revision_hub: sync_api::RevisionHub,
 }
 
 impl fmt::Debug for AppState {
@@ -77,18 +80,32 @@ pub async fn build_app(
     }
     let dummy_password_hash = hash_password("lvos-dummy-password".to_owned()).await?;
     let max_body = config.max_request_body_bytes;
+    let max_sync_body = config.max_sync_body_bytes;
     let state = AppState {
         repository,
         config: Arc::new(config),
         limiter: Arc::new(LoginRateLimiter::default()),
         dummy_password_hash: Arc::new(dummy_password_hash),
+        revision_hub: sync_api::RevisionHub::default(),
     };
+
+    let sync = Router::new()
+        .route("/api/v1/sync/push", post(sync_api::push))
+        .route("/api/v1/sync/changes", get(sync_api::changes))
+        .route("/api/v1/sync/stream", get(sync_api::stream))
+        .route("/api/v1/favorites", get(sync_api::favorites))
+        .route(
+            "/api/v1/favorites/{content_key}/state",
+            patch(sync_api::set_favorite_state),
+        )
+        .layer(RequestBodyLimitLayer::new(max_sync_body));
 
     let protected = Router::new()
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/me", get(current_user))
         .route("/api/v1/devices", get(list_devices))
         .route("/api/v1/devices/{device_id}/revoke", post(revoke_device))
+        .merge(sync)
         .route_layer(from_fn_with_state(state.clone(), require_access));
 
     Ok(Router::new()

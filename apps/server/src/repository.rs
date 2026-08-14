@@ -12,7 +12,7 @@ use crate::storage;
 
 #[derive(Clone)]
 pub struct ServerRepository {
-    connection: Arc<Mutex<Connection>>,
+    pub(crate) connection: Arc<Mutex<Connection>>,
 }
 
 impl fmt::Debug for ServerRepository {
@@ -434,7 +434,7 @@ impl ServerRepository {
         transaction.commit().map_err(|_| RepositoryError::Database)
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, RepositoryError> {
+    pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, RepositoryError> {
         self.connection
             .lock()
             .map_err(|_| RepositoryError::Database)
