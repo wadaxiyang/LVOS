@@ -174,6 +174,61 @@ impl DatabaseWorker {
         .await
     }
 
+    /// Lists all durable Profile identities for installation-wide account maintenance.
+    ///
+    /// # Errors
+    /// Returns an error when a Profile directory or metadata row cannot be read.
+    pub async fn profile_metadata(&self) -> Result<Vec<ProfileMetadata>, DatabaseWorkerError> {
+        self.schedule(|state| {
+            profile_database_paths(&state.application_data_root)?
+                .into_iter()
+                .map(|path| {
+                    ProfileDatabase::inspect_metadata(&path).map_err(DatabaseWorkerError::Storage)
+                })
+                .collect()
+        })
+        .await
+    }
+
+    /// Replaces one revoked installation Device identity across every Profile, retaining Outbox.
+    ///
+    /// Already changed Profile files are rolled back if a later Profile update fails.
+    ///
+    /// # Errors
+    /// Returns an error when any Profile does not have the expected identity or cannot be updated.
+    pub async fn replace_profile_device_identity(
+        &self,
+        expected_current: Uuid,
+        replacement: Uuid,
+        now: lvos_core::UnixTimestamp,
+    ) -> Result<(), DatabaseWorkerError> {
+        self.schedule(move |state| {
+            let paths = profile_database_paths(&state.application_data_root)?;
+            let mut changed: Vec<PathBuf> = Vec::new();
+            for path in paths {
+                if let Err(error) = ProfileDatabase::replace_device_identity_at(
+                    &path,
+                    expected_current,
+                    replacement,
+                    now,
+                ) {
+                    for changed_path in changed.into_iter().rev() {
+                        let _ = ProfileDatabase::replace_device_identity_at(
+                            &changed_path,
+                            replacement,
+                            expected_current,
+                            now,
+                        );
+                    }
+                    return Err(DatabaseWorkerError::Storage(error));
+                }
+                changed.push(path);
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// Binds the current unbound Profile or switches to an existing account Profile.
     ///
     /// # Errors
@@ -235,6 +290,28 @@ impl DatabaseWorker {
             .map(|value| *value)
             .map_err(|_| DatabaseWorkerError::InvalidResultType)
     }
+}
+
+fn profile_database_paths(
+    application_data_root: &std::path::Path,
+) -> Result<Vec<PathBuf>, DatabaseWorkerError> {
+    let entries = std::fs::read_dir(application_data_root)
+        .map_err(|error| DatabaseWorkerError::Storage(StorageError::Io(error)))?;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|error| DatabaseWorkerError::Storage(StorageError::Io(error)))?
+            .path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("profile-") && name.ends_with(".sqlite3"))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
 }
 
 impl Drop for DatabaseWorker {

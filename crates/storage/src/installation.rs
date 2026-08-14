@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -74,16 +75,52 @@ impl InstallationStore {
             return Err(StorageError::InvalidData("device name is empty"));
         }
         let metadata = InstallationMetadata::new(platform, device_name.trim().to_owned());
+        self.persist(&metadata)?;
+        Ok(metadata)
+    }
+
+    /// Permanently replaces a revoked installation identity after explicit user confirmation.
+    ///
+    /// The caller must first preserve Profile data and Outbox intent under the replacement ID.
+    ///
+    /// # Errors
+    /// Returns an error if the current identity changed, the replacement is invalid, or atomic
+    /// persistence fails.
+    pub fn replace_revoked_identity(
+        &self,
+        expected_current: Uuid,
+        replacement: Uuid,
+    ) -> Result<InstallationMetadata, StorageError> {
+        if replacement.is_nil() || replacement == expected_current {
+            return Err(StorageError::InvalidData(
+                "replacement device identity is invalid",
+            ));
+        }
+        let mut metadata: InstallationMetadata = serde_json::from_slice(&fs::read(&self.path)?)?;
+        validate_metadata(&metadata)?;
+        if metadata.device_id != expected_current {
+            return Err(StorageError::InvalidData(
+                "installation device identity changed",
+            ));
+        }
+        metadata.device_id = replacement;
+        self.persist(&metadata)?;
+        Ok(metadata)
+    }
+
+    fn persist(&self, metadata: &InstallationMetadata) -> Result<(), StorageError> {
         let parent = self
             .path
             .parent()
             .ok_or(StorageError::InvalidData("installation path has no parent"))?;
         fs::create_dir_all(parent)?;
-        let temporary = parent.join("installation.json.tmp");
-        let bytes = serde_json::to_vec_pretty(&metadata)?;
-        fs::write(&temporary, bytes)?;
-        fs::rename(temporary, &self.path)?;
-        Ok(metadata)
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        temporary.write_all(&serde_json::to_vec_pretty(metadata)?)?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&self.path)
+            .map_err(|error| StorageError::Io(error.error))?;
+        Ok(())
     }
 
     #[must_use]

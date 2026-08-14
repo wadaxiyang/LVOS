@@ -16,7 +16,7 @@ use crate::{
     model::{FavoritePayload, QueryStatsPayload},
 };
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 const MIGRATION_1: &str = r"
 CREATE TABLE schema_migrations (
@@ -95,6 +95,13 @@ CREATE INDEX idx_outbox_retry ON sync_outbox(next_retry_at);
 CREATE UNIQUE INDEX idx_outbox_coalesce ON sync_outbox(coalesce_key) WHERE coalesce_key IS NOT NULL;
 ";
 
+const MIGRATION_2: &str = r"
+ALTER TABLE profile_meta ADD COLUMN last_successful_sync_at INTEGER NULL;
+ALTER TABLE profile_meta ADD COLUMN last_sync_error TEXT NULL;
+ALTER TABLE profile_meta ADD COLUMN sse_connected INTEGER NOT NULL DEFAULT 0 CHECK(sse_connected IN (0, 1));
+ALTER TABLE sync_outbox ADD COLUMN conflict_replay_count INTEGER NOT NULL DEFAULT 0 CHECK(conflict_replay_count >= 0);
+";
+
 #[derive(Clone, Debug)]
 pub struct ProfilePaths {
     database: PathBuf,
@@ -130,12 +137,27 @@ pub struct BackupArtifact {
 
 #[derive(Debug)]
 pub struct ProfileDatabase {
-    connection: Connection,
+    pub(crate) connection: Connection,
     paths: ProfilePaths,
     pre_migration_backup: Option<BackupArtifact>,
 }
 
 impl ProfileDatabase {
+    /// Replaces the installation Device identity in one existing Profile without changing user
+    /// data, sync cursor, or Outbox event IDs.
+    ///
+    /// # Errors
+    /// Returns an error if the expected identity does not match or persistence fails.
+    pub fn replace_device_identity_at(
+        path: &Path,
+        expected_current: Uuid,
+        replacement: Uuid,
+        now: UnixTimestamp,
+    ) -> Result<(), StorageError> {
+        let mut connection = Connection::open(path)?;
+        replace_device_identity(&mut connection, expected_current, replacement, now)
+    }
+
     /// Reads Profile metadata without opening the database for runtime use or running migrations.
     ///
     /// # Errors
@@ -205,6 +227,19 @@ impl ProfileDatabase {
     /// Returns an error for missing or malformed persisted data.
     pub fn metadata(&self) -> Result<ProfileMetadata, StorageError> {
         read_profile_metadata(&self.connection)
+    }
+
+    /// Replaces the installation Device identity in the active Profile while retaining Outbox.
+    ///
+    /// # Errors
+    /// Returns an error if the expected identity does not match or persistence fails.
+    pub fn replace_device_identity(
+        &mut self,
+        expected_current: Uuid,
+        replacement: Uuid,
+        now: UnixTimestamp,
+    ) -> Result<(), StorageError> {
+        replace_device_identity(&mut self.connection, expected_current, replacement, now)
     }
 
     /// Returns whether the active Profile has no Server User binding.
@@ -536,7 +571,7 @@ impl ProfileDatabase {
     /// # Errors
     /// Returns an error for malformed persisted data or `SQLite` failure.
     pub fn outbox_events(&self) -> Result<Vec<OutboxEvent>, StorageError> {
-        let mut statement = self.connection.prepare("SELECT event_id, content_key, operation, payload_json, coalesce_key, base_entity_revision, created_at, updated_at, attempt_count, next_retry_at, last_error FROM sync_outbox ORDER BY created_at, event_id")?;
+        let mut statement = self.connection.prepare("SELECT event_id, content_key, operation, payload_json, coalesce_key, base_entity_revision, created_at, updated_at, attempt_count, next_retry_at, last_error, conflict_replay_count FROM sync_outbox ORDER BY created_at, event_id")?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -550,6 +585,7 @@ impl ProfileDatabase {
                 row.get::<_, i64>(8)?,
                 row.get::<_, Option<i64>>(9)?,
                 row.get(10)?,
+                row.get::<_, i64>(11)?,
             ))
         })?;
         rows.map(|row| {
@@ -571,6 +607,8 @@ impl ProfileDatabase {
                     .map_err(|_| StorageError::InvalidData("negative attempt count"))?,
                 next_retry_at: row.9.map(UnixTimestamp::from_seconds),
                 last_error: row.10,
+                conflict_replay_count: u32::try_from(row.11)
+                    .map_err(|_| StorageError::InvalidData("negative conflict replay count"))?,
             })
         })
         .collect()
@@ -780,7 +818,7 @@ fn upsert_query_stats_event(
     upsert_outbox(
         transaction,
         &PendingOutbox {
-            event_id: Uuid::new_v4(),
+            event_id: Uuid::now_v7(),
             key,
             operation: OutboxOperation::QueryStatsUpsert,
             payload: &payload,
@@ -815,7 +853,7 @@ fn upsert_favorite_event(
     upsert_outbox(
         transaction,
         &PendingOutbox {
-            event_id: Uuid::new_v4(),
+            event_id: Uuid::now_v7(),
             key,
             operation,
             payload: &payload,
@@ -873,6 +911,16 @@ fn apply_migrations(connection: &mut Connection, current: u32) -> Result<(), Sto
             .commit()
             .map_err(|source| StorageError::Migration { version: 1, source })?;
     }
+    if current < 2 {
+        let transaction = connection.transaction()?;
+        transaction
+            .execute_batch(MIGRATION_2)
+            .map_err(|source| StorageError::Migration { version: 2, source })?;
+        transaction.execute("INSERT INTO schema_migrations (version,name,applied_at) VALUES (2,'desktop_sync_runtime',strftime('%s','now'))", []).map_err(|source| StorageError::Migration { version: 2, source })?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Migration { version: 2, source })?;
+    }
     Ok(())
 }
 
@@ -925,6 +973,45 @@ fn upsert_or_validate_profile(
         return Ok(());
     }
     connection.execute("INSERT INTO profile_meta (singleton_id,profile_id,user_id,username,device_id,platform,server_origin,last_server_revision,created_at,updated_at) VALUES (1,?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![metadata.profile_id.to_string(),metadata.user_id.map(|value| value.to_string()),metadata.username,metadata.device_id.to_string(),metadata.platform,metadata.server_origin,to_i64(metadata.last_server_revision)?,metadata.created_at.as_seconds(),metadata.updated_at.as_seconds()])?;
+    Ok(())
+}
+
+fn replace_device_identity(
+    connection: &mut Connection,
+    expected_current: Uuid,
+    replacement: Uuid,
+    now: UnixTimestamp,
+) -> Result<(), StorageError> {
+    if expected_current.is_nil() || replacement.is_nil() || expected_current == replacement {
+        return Err(StorageError::InvalidIdentifier("device"));
+    }
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
+        "UPDATE profile_meta SET device_id=?1,updated_at=?2
+         WHERE singleton_id=1 AND device_id=?3",
+        params![
+            replacement.to_string(),
+            now.as_seconds(),
+            expected_current.to_string()
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::InvalidData(
+            "Profile Device identity does not match",
+        ));
+    }
+    transaction.execute(
+        "UPDATE sync_outbox SET coalesce_key='query_stats:' || ?1 || ':' || content_key,
+         updated_at=?2 WHERE operation='query_stats_upsert'",
+        params![replacement.to_string(), now.as_seconds()],
+    )?;
+    transaction.execute(
+        "UPDATE query_stats
+         SET device_query_count=device_query_count-last_synced_device_query_count,
+             last_synced_device_query_count=0",
+        [],
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 

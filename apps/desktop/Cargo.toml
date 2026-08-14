@@ -9,12 +9,18 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
 lvos-auth = { path = "../../crates/auth" }
 lvos-core = { path = "../../crates/core" }
 lvos-platform = { path = "../../crates/platform" }
 lvos-storage = { path = "../../crates/storage" }
 lvos-sync = { path = "../../crates/sync" }
 lvos-translation = { path = "../../crates/translation" }
+reqwest = { workspace = true, features = ["query", "stream"] }
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 slint.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

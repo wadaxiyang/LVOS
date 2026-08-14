@@ -3036,6 +3036,7 @@ name = "lvos"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-util",
  "lvos-auth",
  "lvos-core",
  "lvos-platform",
@@ -3045,6 +3046,10 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "raw-window-handle",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "tempfile",
@@ -3128,6 +3133,7 @@ name = "lvos-storage"
 version = "0.1.0"
 dependencies = [
  "lvos-core",
+ "lvos-sync",
  "rusqlite",
  "serde",
  "serde_json",
@@ -4585,6 +4591,7 @@ dependencies = [
  "base64",
  "bytes",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -4600,15 +4607,18 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
 ]
 
@@ -6365,6 +6375,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

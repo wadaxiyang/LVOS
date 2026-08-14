@@ -28,7 +28,7 @@ impl ActiveServices {
 }
 
 pub struct ProfileLifecycle<S> {
-    database: DatabaseWorker,
+    database: Arc<DatabaseWorker>,
     services: Arc<S>,
     active_services: Option<ActiveServices>,
 }
@@ -45,9 +45,9 @@ impl<S> fmt::Debug for ProfileLifecycle<S> {
 
 impl<S: BackgroundProfileServices + 'static> ProfileLifecycle<S> {
     #[must_use]
-    pub fn new(database: DatabaseWorker, services: Arc<S>) -> Self {
+    pub fn new(database: impl Into<Arc<DatabaseWorker>>, services: Arc<S>) -> Self {
         Self {
-            database,
+            database: database.into(),
             services,
             active_services: None,
         }
@@ -95,8 +95,13 @@ impl<S: BackgroundProfileServices + 'static> ProfileLifecycle<S> {
     }
 
     #[must_use]
-    pub const fn database(&self) -> &DatabaseWorker {
-        &self.database
+    pub fn database(&self) -> &DatabaseWorker {
+        self.database.as_ref()
+    }
+
+    #[must_use]
+    pub fn database_handle(&self) -> Arc<DatabaseWorker> {
+        Arc::clone(&self.database)
     }
 }
 

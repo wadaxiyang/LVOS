@@ -108,6 +108,16 @@ pub struct OutboxEvent {
     pub attempt_count: u32,
     pub next_retry_at: Option<UnixTimestamp>,
     pub last_error: Option<String>,
+    pub conflict_replay_count: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyncDiagnostics {
+    pub last_server_revision: u64,
+    pub pending_outbox: u64,
+    pub last_successful_sync_at: Option<UnixTimestamp>,
+    pub last_error: Option<String>,
+    pub sse_connected: bool,
 }
 
 #[derive(Serialize)]

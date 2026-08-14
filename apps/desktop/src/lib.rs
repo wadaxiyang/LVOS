@@ -1,21 +1,34 @@
 //! LVOS Desktop runtime orchestration.
 
 mod db_worker;
+mod device_identity;
 mod generation;
 mod lifecycle;
 mod lookup;
+mod sync_engine;
+mod sync_session;
+mod sync_transport;
 mod ui;
 mod ui_bridge;
 mod ui_service;
 mod ui_state;
 
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
+pub use device_identity::{DeviceIdentityError, DeviceIdentityManager};
 pub use generation::{CaptureAdmission, CaptureGate, QueryGeneration, QueryTicket};
 pub use lifecycle::{
     BackgroundProfileServices, DesktopRuntime, ProfileLifecycle, RuntimeError, StartupDisposition,
     SwitchOutcome, acquire_single_instance,
 };
 pub use lookup::{LookupError, LookupMode, LookupOutcome, LookupService};
+pub use sync_engine::{
+    SyncEngine, SyncEngineError, SyncProfileServices, SyncRunOutcome, SyncWorker, SyncWorkerHandle,
+};
+pub use sync_session::{AuthenticatedSession, SessionError};
+pub use sync_transport::{
+    FavoriteConflict, HttpSyncTransport, LoginCredentials, LoginIdentity, RefreshedTokens,
+    RemoteDevice, RevisionStreamEvent, SyncTransport, TransportError,
+};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use ui::show_captured_provider_error;
 #[cfg(target_os = "macos")]

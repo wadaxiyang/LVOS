@@ -2,9 +2,10 @@ use std::{fs, num::NonZeroUsize};
 
 use lvos_core::{LanguageCode, UnixTimestamp, ValidationPolicy, prepare_content};
 use lvos_storage::{
-    HistoryEntry, InstallationStore, OutboxOperation, Platform, ProfileDatabase, ProfileMetadata,
-    ProfilePaths, StoredContent, TranslationSnapshot,
+    AcknowledgedEvent, HistoryEntry, InstallationStore, OutboxOperation, Platform, ProfileDatabase,
+    ProfileMetadata, ProfilePaths, StoredContent, TranslationSnapshot,
 };
+use lvos_sync::{AckStatus, AggregateQueryStats, PushAck};
 use rusqlite::Connection;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -67,6 +68,80 @@ fn installation_identity_is_created_once_and_reloaded() {
         store.path().file_name().and_then(|name| name.to_str()),
         Some("installation.json")
     );
+}
+
+#[test]
+fn replacement_device_preserves_effective_stats_without_double_counting_old_snapshot() {
+    let directory = tempdir().unwrap_or_else(|error| unreachable!("fixture: {error}"));
+    let original_device = Uuid::new_v4();
+    let metadata = profile_metadata(Uuid::new_v4(), original_device);
+    let mut database = ProfileDatabase::open(
+        ProfilePaths::new(directory.path(), metadata.profile_id),
+        &metadata,
+    )
+    .unwrap_or_else(|error| unreachable!("open: {error}"));
+    let entry = history("Device replacement", "设备替换", 100);
+    let key = entry.content.content_key;
+    database
+        .record_successful_query(&entry)
+        .unwrap_or_else(|error| unreachable!("query: {error}"));
+    database
+        .favorite(key, UnixTimestamp::from_seconds(101))
+        .unwrap_or_else(|error| unreachable!("favorite: {error}"));
+    let event = database
+        .outbox_events()
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| unreachable!("Favorite event"));
+    database
+        .acknowledge_events(
+            &[AcknowledgedEvent {
+                event: event.clone(),
+                acknowledgement: PushAck {
+                    event_id: event.event_id.to_string(),
+                    status: AckStatus::Applied,
+                    entity_revision: Some(1),
+                    user_revision: 1,
+                    aggregate_query_stats: Some(AggregateQueryStats {
+                        query_count: 1,
+                        first_queried_at: 100,
+                        last_queried_at: 100,
+                    }),
+                },
+                sent_query_count: Some(1),
+            }],
+            UnixTimestamp::from_seconds(102),
+        )
+        .unwrap_or_else(|error| unreachable!("acknowledge: {error}"));
+    let replacement = Uuid::new_v4();
+    database
+        .replace_device_identity(
+            original_device,
+            replacement,
+            UnixTimestamp::from_seconds(103),
+        )
+        .unwrap_or_else(|error| unreachable!("replace: {error}"));
+    let stats = database
+        .query_stats(key)
+        .unwrap_or_default()
+        .unwrap_or_else(|| unreachable!("QueryStats"));
+    assert_eq!(stats.device_query_count, 0);
+    assert_eq!(stats.last_synced_device_query_count, 0);
+    assert_eq!(stats.effective_total(), 1);
+    database
+        .unfavorite(key, UnixTimestamp::from_seconds(104))
+        .unwrap_or_else(|error| unreachable!("unfavorite: {error}"));
+    let event = database
+        .outbox_events()
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| unreachable!("delete event"));
+    let push = database
+        .push_event(&event)
+        .unwrap_or_else(|error| unreachable!("push event: {error}"));
+    assert!(push.query_stats.is_none());
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::{error::Error, fmt, str::FromStr, sync::Arc};
 
 use lvos_core::{ContentKey, UnixTimestamp};
 
-use crate::DatabaseWorker;
+use crate::{DatabaseWorker, SyncWorkerHandle};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiRecordData {
@@ -21,12 +21,22 @@ pub struct UiRecordData {
 #[derive(Clone, Debug)]
 pub struct UiDataService {
     database: Arc<DatabaseWorker>,
+    sync: Option<SyncWorkerHandle>,
 }
 
 impl UiDataService {
     #[must_use]
     pub fn new(database: Arc<DatabaseWorker>) -> Self {
-        Self { database }
+        Self {
+            database,
+            sync: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_sync_worker(mut self, sync: SyncWorkerHandle) -> Self {
+        self.sync = Some(sync);
+        self
     }
 
     /// Loads matching History records with effective learning counts and Favorite status.
@@ -111,7 +121,8 @@ impl UiDataService {
         now: UnixTimestamp,
     ) -> Result<bool, UiDataError> {
         let key = ContentKey::from_str(&key).map_err(|_| UiDataError::InvalidContentKey)?;
-        self.database
+        let result = self
+            .database
             .execute(move |database| {
                 if active {
                     database.favorite(key, now)?;
@@ -121,7 +132,11 @@ impl UiDataService {
                 Ok(active)
             })
             .await
-            .map_err(UiDataError::Database)
+            .map_err(UiDataError::Database)?;
+        if let Some(sync) = &self.sync {
+            sync.wake();
+        }
+        Ok(result)
     }
 
     /// Clears History while preserving Favorite-domain data according to the storage contract.

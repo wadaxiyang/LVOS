@@ -3,13 +3,15 @@
 mod installation;
 mod model;
 mod profile;
+mod sync;
 
 pub use installation::{InstallationMetadata, InstallationStore, Platform};
 pub use model::{
     Favorite, HistoryEntry, OutboxEvent, OutboxOperation, ProfileMetadata, QueryStats,
-    StoredContent, TranslationSnapshot,
+    StoredContent, SyncDiagnostics, TranslationSnapshot,
 };
 pub use profile::{BackupArtifact, ProfileDatabase, ProfilePaths, SCHEMA_VERSION};
+pub use sync::{AcknowledgedEvent, ConflictResolution};
 
 use std::{error::Error, fmt, io};
 
