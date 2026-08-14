@@ -22,13 +22,25 @@ pub struct LookupOutcome {
 #[derive(Debug)]
 pub struct LookupService {
     database: Arc<DatabaseWorker>,
-    router: TranslationRouter,
+    router: Option<TranslationRouter>,
 }
 
 impl LookupService {
     #[must_use]
     pub fn new(database: Arc<DatabaseWorker>, router: TranslationRouter) -> Self {
-        Self { database, router }
+        Self {
+            database,
+            router: Some(router),
+        }
+    }
+
+    /// Builds the local-cache path before a Provider has been configured.
+    #[must_use]
+    pub fn new_without_provider(database: Arc<DatabaseWorker>) -> Self {
+        Self {
+            database,
+            router: None,
+        }
     }
 
     /// Resolves a cache hit or performs one Provider request, then commits History and `QueryStats`.
@@ -69,6 +81,8 @@ impl LookupService {
 
         let translated = self
             .router
+            .as_ref()
+            .ok_or(TranslationError::MissingConfiguration)?
             .translate(&TranslationRequest {
                 text: content.source_text().to_owned(),
                 source_language: content.source_lang().clone(),

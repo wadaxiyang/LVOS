@@ -23,6 +23,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, patch, post},
 };
+use lvos_core::{API_VERSION, SOFTWARE_VERSION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
@@ -136,7 +137,12 @@ pub async fn bootstrap_user(
 }
 
 async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse { status: "ok" })
+    Json(HealthResponse {
+        status: "ok",
+        server_api_version: API_VERSION,
+        server_version: SOFTWARE_VERSION,
+        minimum_desktop_version: SOFTWARE_VERSION,
+    })
 }
 
 async fn login(
@@ -498,6 +504,9 @@ struct RefreshRequest {
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
+    server_api_version: &'static str,
+    server_version: &'static str,
+    minimum_desktop_version: &'static str,
 }
 
 #[derive(Serialize)]

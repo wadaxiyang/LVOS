@@ -64,6 +64,9 @@ impl<T: SyncTransport + 'static> AuthenticatedSession<T> {
         login: &LoginCredentials,
     ) -> Result<(Self, LoginIdentity), SessionError> {
         let identity = transport.login(&server_origin, login).await?;
+        if identity.device_id != login.device_id || identity.platform != login.platform {
+            return Err(SessionError::Transport(TransportError::InvalidResponse));
+        }
         let scope = refresh_scope(&server_origin, &identity.user_id, &identity.device_id);
         credential_store.set(&scope, identity.refresh_token.as_bytes())?;
         let session = Self::from_identity(transport, credential_store, server_origin, &identity);
@@ -89,6 +92,9 @@ impl<T: SyncTransport + 'static> AuthenticatedSession<T> {
             .ok_or(SessionError::NoPersistentSession)?;
         let refresh = String::from_utf8(refresh).map_err(|_| SessionError::InvalidCredential)?;
         let tokens = transport.refresh(&server_origin, &refresh).await?;
+        if !tokens.matches_identity(&user_id, &username, &device_id, &platform) {
+            return Err(SessionError::Transport(TransportError::InvalidResponse));
+        }
         credential_store.set(&scope, tokens.refresh_token.as_bytes())?;
         Ok(Self {
             transport,
@@ -167,6 +173,14 @@ impl<T: SyncTransport + 'static> AuthenticatedSession<T> {
             .transport
             .refresh(&self.server_origin, &refresh)
             .await?;
+        if !tokens.matches_identity(
+            &self.user_id,
+            &self.username,
+            &self.device_id,
+            &self.platform,
+        ) {
+            return Err(SessionError::Transport(TransportError::InvalidResponse));
+        }
         // Persist the rotated refresh token before making its paired access token visible.
         self.credentials
             .set(&scope, tokens.refresh_token.as_bytes())?;
@@ -333,6 +347,21 @@ fn refresh_scope(server_origin: &str, user_id: &str, device_id: &str) -> Credent
     }
 }
 
+impl crate::RefreshedTokens {
+    fn matches_identity(
+        &self,
+        user_id: &str,
+        username: &str,
+        device_id: &str,
+        platform: &str,
+    ) -> bool {
+        self.user_id == user_id
+            && self.username == username
+            && self.device_id == device_id
+            && self.platform == platform
+    }
+}
+
 #[derive(Debug)]
 pub enum SessionError {
     Transport(TransportError),
@@ -429,6 +458,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct ExpiringTransport {
         refreshes: std::sync::atomic::AtomicUsize,
+        mismatched_refresh_identity: bool,
     }
 
     #[async_trait]
@@ -459,6 +489,14 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             Ok(RefreshedTokens {
+                user_id: "user-1".to_owned(),
+                username: "alice".to_owned(),
+                device_id: if self.mismatched_refresh_identity {
+                    "different-device".to_owned()
+                } else {
+                    "device-1".to_owned()
+                },
+                platform: "macos".to_owned(),
                 access_token: "access-new".to_owned(),
                 access_expires_at: 2,
                 refresh_token: "refresh-new".to_owned(),
@@ -600,6 +638,34 @@ mod tests {
             !credentials
                 .contains(&session.credential_scope())
                 .unwrap_or(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_identity_mismatch_never_replaces_session_credentials() {
+        let transport = Arc::new(ExpiringTransport {
+            mismatched_refresh_identity: true,
+            ..ExpiringTransport::default()
+        });
+        let credentials = Arc::new(MemoryCredentials::default());
+        let store: Arc<dyn CredentialStore> = credentials.clone();
+        let (session, _) = AuthenticatedSession::login(
+            transport,
+            store,
+            "https://sync.example".to_owned(),
+            &login(),
+        )
+        .await
+        .unwrap_or_else(|error| unreachable!("login fixture: {error}"));
+        assert!(matches!(
+            session.push(&PushRequest { events: Vec::new() }).await,
+            Err(SessionError::Transport(TransportError::InvalidResponse))
+        ));
+        assert_eq!(
+            credentials
+                .get(&session.credential_scope())
+                .unwrap_or_default(),
+            Some(b"refresh-old".to_vec())
         );
     }
 

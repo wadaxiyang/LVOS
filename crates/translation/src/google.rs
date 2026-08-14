@@ -176,5 +176,6 @@ fn map_transport_error(error: TransportError) -> TranslationError {
         TransportError::Network => TranslationError::Network,
         TransportError::ConnectTimeout => TranslationError::ConnectTimeout,
         TransportError::RequestTimeout => TranslationError::RequestTimeout,
+        TransportError::ResponseTooLarge => TranslationError::InvalidResponse,
     }
 }

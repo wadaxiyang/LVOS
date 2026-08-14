@@ -80,6 +80,43 @@ pub fn show_captured_provider_error(
     Ok(())
 }
 
+/// Renders and displays a production Lookup Card through the native no-activate path.
+///
+/// # Errors
+/// Returns a platform error if the native Popup cannot be shown or monitored.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub fn show_lookup_state(
+    popup: &QuickLookupPopup,
+    state: &LookupCardState,
+) -> Result<(), UiControllerError> {
+    apply_lookup_state_to_popup(popup, state);
+    #[cfg(target_os = "macos")]
+    {
+        popup.show().map_err(UiControllerError::Platform)?;
+        let popup_bounds = macos_window::show_without_activation_and_place(popup.window())?;
+        let popup_weak = popup.as_weak();
+        let dismiss = std::sync::Arc::new(move || {
+            let popup_weak = popup_weak.clone();
+            if let Err(error) = slint::invoke_from_event_loop(move || {
+                if let Some(popup) = popup_weak.upgrade()
+                    && let Err(error) = popup.hide()
+                {
+                    tracing::warn!(%error, "failed to hide Lookup Card");
+                }
+                CAPTURE_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
+            }) {
+                tracing::warn!(%error, "failed to dispatch Lookup Card dismissal");
+            }
+        });
+        let monitor = lvos_platform::macos::OutsideClickMonitor::install(popup_bounds, dismiss)
+            .map_err(|_| macos_window::platform_error("outside-click monitor is unavailable"))?;
+        CAPTURE_POPUP_MONITOR.with(|active| active.borrow_mut().replace(monitor));
+    }
+    #[cfg(target_os = "windows")]
+    windows_window::show_without_activation_and_monitor(popup)?;
+    Ok(())
+}
+
 /// Shows the permission surface as the active, frontmost macOS window.
 ///
 /// Permission recovery is an explicit user interaction, so unlike the Lookup Card this window is
@@ -197,44 +234,7 @@ impl UiController {
 
     /// Populates the Lookup Card without displaying Provider or sync metadata.
     pub fn apply_lookup_state(&self, state: &LookupCardState) {
-        match state {
-            LookupCardState::Hidden => {}
-            LookupCardState::Loading { source, .. } => {
-                self.popup.set_source_text(source.into());
-                self.popup.set_translated_text(SharedString::default());
-                self.popup.set_loading(true);
-                self.popup.set_error_visible(false);
-                self.popup
-                    .set_text_mode(source.split_whitespace().count() > 1);
-            }
-            LookupCardState::Ready {
-                source,
-                translation,
-                favorite,
-                effective_query_count,
-                ..
-            } => {
-                self.popup.set_source_text(source.into());
-                self.popup.set_translated_text(translation.into());
-                self.popup.set_favorite(*favorite);
-                self.popup
-                    .set_effective_count(saturating_i32(*effective_query_count));
-                self.popup.set_loading(false);
-                self.popup.set_error_visible(false);
-                self.popup
-                    .set_text_mode(source.split_whitespace().count() > 1);
-            }
-            LookupCardState::Error { source, kind, .. } => {
-                let (title, detail) = error_copy(*kind);
-                self.popup.set_source_text(source.into());
-                self.popup.set_error_title(title.into());
-                self.popup.set_error_detail(detail.into());
-                self.popup.set_loading(false);
-                self.popup.set_error_visible(true);
-                self.popup
-                    .set_text_mode(source.split_whitespace().count() > 1);
-            }
-        }
+        apply_lookup_state_to_popup(&self.popup, state);
     }
 
     /// Marks the Popup visible without activation. Stage 06/07 supplies native no-activate show.
@@ -345,6 +345,43 @@ impl UiController {
     /// Returns a platform error if the native window cannot be hidden.
     pub fn hide_main_window(&self) -> Result<(), UiControllerError> {
         self.main_window.hide().map_err(UiControllerError::Platform)
+    }
+}
+
+fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState) {
+    match state {
+        LookupCardState::Hidden => {}
+        LookupCardState::Loading { source, .. } => {
+            popup.set_source_text(source.into());
+            popup.set_translated_text(SharedString::default());
+            popup.set_loading(true);
+            popup.set_error_visible(false);
+            popup.set_text_mode(source.split_whitespace().count() > 1);
+        }
+        LookupCardState::Ready {
+            source,
+            translation,
+            favorite,
+            effective_query_count,
+            ..
+        } => {
+            popup.set_source_text(source.into());
+            popup.set_translated_text(translation.into());
+            popup.set_favorite(*favorite);
+            popup.set_effective_count(saturating_i32(*effective_query_count));
+            popup.set_loading(false);
+            popup.set_error_visible(false);
+            popup.set_text_mode(source.split_whitespace().count() > 1);
+        }
+        LookupCardState::Error { source, kind, .. } => {
+            let (title, detail) = error_copy(*kind);
+            popup.set_source_text(source.into());
+            popup.set_error_title(title.into());
+            popup.set_error_detail(detail.into());
+            popup.set_loading(false);
+            popup.set_error_visible(true);
+            popup.set_text_mode(source.split_whitespace().count() > 1);
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use lvos_sync::{ChangesResponse, FavoriteRecord, PushRequest, PushResponse, RevisionNotice};
 use reqwest::{StatusCode, Url};
+use semver::Version;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -11,6 +12,8 @@ use tokio_util::sync::CancellationToken;
 const MAX_ERROR_BODY_BYTES: u64 = 65_536;
 const MAX_JSON_BODY_BYTES: usize = 8 * 1_024 * 1_024;
 const MAX_SSE_BUFFER_BYTES: usize = 65_536;
+const MAX_SESSION_TOKEN_BYTES: usize = 4_096;
+const MAX_USERNAME_BYTES: usize = 128;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct LoginIdentity {
@@ -42,6 +45,10 @@ impl fmt::Debug for LoginIdentity {
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct RefreshedTokens {
+    pub user_id: String,
+    pub username: String,
+    pub device_id: String,
+    pub platform: String,
     pub access_token: String,
     pub access_expires_at: i64,
     pub refresh_token: String,
@@ -51,6 +58,10 @@ impl fmt::Debug for RefreshedTokens {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("RefreshedTokens")
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .field("device_id", &self.device_id)
+            .field("platform", &self.platform)
             .field("access_token", &"[REDACTED]")
             .field("access_expires_at", &self.access_expires_at)
             .field("refresh_token", &"[REDACTED]")
@@ -90,6 +101,13 @@ pub struct RemoteDevice {
     pub revoked_at: Option<i64>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerCompatibility {
+    pub server_api_version: String,
+    pub server_version: Version,
+    pub minimum_desktop_version: Version,
+}
+
 #[derive(Clone, Debug)]
 pub struct FavoriteConflict {
     pub event_id: Option<String>,
@@ -112,6 +130,7 @@ pub enum TransportError {
     Conflict(Box<FavoriteConflict>),
     Rejected,
     InvalidResponse,
+    IncompatibleServer,
 }
 
 impl fmt::Display for TransportError {
@@ -124,6 +143,7 @@ impl fmt::Display for TransportError {
             Self::Conflict(_) => "the Favorite revision conflicts with the server",
             Self::Rejected => "the sync server rejected the request",
             Self::InvalidResponse => "the sync server returned an invalid response",
+            Self::IncompatibleServer => "the sync server requires a different Desktop/API version",
         })
     }
 }
@@ -221,6 +241,43 @@ impl HttpSyncTransport {
             .map_err(|_| TransportError::InvalidResponse)
     }
 
+    /// Verifies the bounded Server compatibility declaration before authentication or sync.
+    ///
+    /// Local lookup does not depend on this result. Callers stop only Server-backed work when the
+    /// API differs or the current Desktop version is below the declared minimum.
+    ///
+    /// # Errors
+    /// Returns an error for an unavailable, malformed, oversized, or incompatible Server.
+    pub async fn compatibility(
+        &self,
+        server_origin: &str,
+    ) -> Result<ServerCompatibility, TransportError> {
+        let response = self
+            .client
+            .get(Self::endpoint(server_origin, "/api/v1/health")?)
+            .send()
+            .await
+            .map_err(|_| TransportError::Offline)?;
+        let response: HealthResponse = Self::json_response(response).await?;
+        if response.status != "ok" || response.server_api_version != lvos_core::API_VERSION {
+            return Err(TransportError::IncompatibleServer);
+        }
+        let server_version = Version::parse(&response.server_version)
+            .map_err(|_| TransportError::InvalidResponse)?;
+        let minimum_desktop_version = Version::parse(&response.minimum_desktop_version)
+            .map_err(|_| TransportError::InvalidResponse)?;
+        let current = Version::parse(lvos_core::SOFTWARE_VERSION)
+            .map_err(|_| TransportError::InvalidResponse)?;
+        if current < minimum_desktop_version {
+            return Err(TransportError::IncompatibleServer);
+        }
+        Ok(ServerCompatibility {
+            server_api_version: response.server_api_version,
+            server_version,
+            minimum_desktop_version,
+        })
+    }
+
     async fn json_response<T: DeserializeOwned>(
         response: reqwest::Response,
     ) -> Result<T, TransportError> {
@@ -247,6 +304,7 @@ impl SyncTransport for HttpSyncTransport {
             .await
             .map_err(|_| TransportError::Offline)?;
         let tokens: TokenResponse = Self::json_response(response).await?;
+        tokens.validate()?;
         Ok(tokens.into_login_identity())
     }
 
@@ -263,11 +321,8 @@ impl SyncTransport for HttpSyncTransport {
             .await
             .map_err(|_| TransportError::Offline)?;
         let tokens: TokenResponse = Self::json_response(response).await?;
-        Ok(RefreshedTokens {
-            access_token: tokens.access_token,
-            access_expires_at: tokens.access_expires_at,
-            refresh_token: tokens.refresh_token,
-        })
+        tokens.validate()?;
+        Ok(tokens.into_refreshed_tokens())
     }
 
     async fn logout(&self, server_origin: &str, access_token: &str) -> Result<(), TransportError> {
@@ -330,6 +385,16 @@ impl SyncTransport for HttpSyncTransport {
             .await
             .map_err(|_| TransportError::Offline)?;
         let response: DevicesResponse = Self::json_response(response).await?;
+        if response.devices.iter().any(|device| {
+            uuid::Uuid::parse_str(&device.device_id).is_err()
+                || !matches!(device.platform.as_str(), "windows" | "macos")
+                || device
+                    .device_name
+                    .as_ref()
+                    .is_some_and(|name| name.len() > 128)
+        }) {
+            return Err(TransportError::InvalidResponse);
+        }
         Ok(response.devices)
     }
 
@@ -339,6 +404,7 @@ impl SyncTransport for HttpSyncTransport {
         access_token: &str,
         device_id: &str,
     ) -> Result<(), TransportError> {
+        uuid::Uuid::parse_str(device_id).map_err(|_| TransportError::InvalidResponse)?;
         empty_response(
             self.client
                 .post(Self::endpoint(
@@ -538,6 +604,14 @@ struct RefreshRequest<'a> {
 }
 
 #[derive(Deserialize)]
+struct HealthResponse {
+    status: String,
+    server_api_version: String,
+    server_version: String,
+    minimum_desktop_version: String,
+}
+
+#[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
     access_expires_at: i64,
@@ -548,6 +622,22 @@ struct TokenResponse {
 }
 
 impl TokenResponse {
+    fn validate(&self) -> Result<(), TransportError> {
+        let valid_token = |value: &str| !value.is_empty() && value.len() <= MAX_SESSION_TOKEN_BYTES;
+        if uuid::Uuid::parse_str(&self.user.user_id).is_err()
+            || uuid::Uuid::parse_str(&self.device.device_id).is_err()
+            || self.user.username.is_empty()
+            || self.user.username.len() > MAX_USERNAME_BYTES
+            || !matches!(self.device.platform.as_str(), "windows" | "macos")
+            || !valid_token(&self.access_token)
+            || !valid_token(&self.refresh_token)
+            || self.access_expires_at <= 0
+        {
+            return Err(TransportError::InvalidResponse);
+        }
+        Ok(())
+    }
+
     fn into_login_identity(self) -> LoginIdentity {
         LoginIdentity {
             user_id: self.user.user_id,
@@ -558,6 +648,18 @@ impl TokenResponse {
             access_expires_at: self.access_expires_at,
             refresh_token: self.refresh_token,
             latest_revision: self.latest_revision,
+        }
+    }
+
+    fn into_refreshed_tokens(self) -> RefreshedTokens {
+        RefreshedTokens {
+            user_id: self.user.user_id,
+            username: self.user.username,
+            device_id: self.device.device_id,
+            platform: self.device.platform,
+            access_token: self.access_token,
+            access_expires_at: self.access_expires_at,
+            refresh_token: self.refresh_token,
         }
     }
 }

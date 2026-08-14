@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Pending sync",
     )]);
     ui.set_devices(vec![DeviceRecord {
+        id: "device-fixture".into(),
         name: "Developer Mac".into(),
         platform: "macOS 15 arm64".into(),
         last_seen: "Now".into(),

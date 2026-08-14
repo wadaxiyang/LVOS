@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+futures-util.workspace = true
 lvos-auth = { path = "../auth" }
 lvos-core = { path = "../core" }
 reqwest.workspace = true

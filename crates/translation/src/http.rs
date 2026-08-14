@@ -1,7 +1,10 @@
 use std::{error::Error, fmt, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
+
+const MAX_PROVIDER_RESPONSE_BYTES: usize = 1_048_576;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TimeoutConfig {
@@ -126,11 +129,20 @@ impl HttpTransport for ReqwestTransport {
             .await
             .map_err(|error| classify_reqwest_error(&error))?;
         let status = response.status().as_u16();
-        let body = response
-            .bytes()
-            .await
-            .map_err(|error| classify_reqwest_error(&error))?
-            .to_vec();
+        if response.content_length().is_some_and(|length| {
+            usize::try_from(length).map_or(true, |length| length > MAX_PROVIDER_RESPONSE_BYTES)
+        }) {
+            return Err(TransportError::ResponseTooLarge);
+        }
+        let mut body = Vec::new();
+        let mut chunks = response.bytes_stream();
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk.map_err(|error| classify_reqwest_error(&error))?;
+            if body.len().saturating_add(chunk.len()) > MAX_PROVIDER_RESPONSE_BYTES {
+                return Err(TransportError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
         Ok(HttpResponse { status, body })
     }
 }
@@ -151,6 +163,7 @@ pub enum TransportError {
     Network,
     ConnectTimeout,
     RequestTimeout,
+    ResponseTooLarge,
 }
 
 impl fmt::Display for TransportError {
@@ -160,6 +173,7 @@ impl fmt::Display for TransportError {
             Self::Network => "HTTP transport failed",
             Self::ConnectTimeout => "HTTP connection timed out",
             Self::RequestTimeout => "HTTP request timed out",
+            Self::ResponseTooLarge => "HTTP response exceeded the configured safety limit",
         })
     }
 }

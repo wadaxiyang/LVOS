@@ -10,6 +10,7 @@ export struct UiRecord {
 }
 
 export struct DeviceRecord {
+    id: string,
     name: string,
     platform: string,
     last-seen: string,
@@ -293,6 +294,7 @@ export component MainWindow inherits Window {
     callback manual-sync-requested;
     callback test-connection-requested;
     callback revoke-device-requested(string);
+    callback regenerate-device-identity-requested;
     callback export-data-requested;
     callback import-data-requested;
     callback check-update-requested;
@@ -450,7 +452,7 @@ export component MainWindow inherits Window {
                         if root.settings-page == 2: VerticalLayout {
                             spacing: 18px;
                             SectionHeader { title: "Account"; subtitle: "Local lookup remains available without login."; }
-                            SettingsCard { height: 310px;
+                            SettingsCard { height: 350px;
                                 VerticalLayout { padding: 18px; spacing: 10px;
                                     Text { text: "Server URL"; font-weight: 600; }
                                     server := LineEdit { text: root.server-url; }
@@ -462,6 +464,7 @@ export component MainWindow inherits Window {
                                         Button { text: "Login"; clicked => { root.login-requested(server.text, user.text, password.text); } }
                                         Button { text: "Logout"; clicked => { root.logout-requested(); } }
                                     }
+                                    Button { text: "Replace Revoked Device Identity…"; clicked => { root.regenerate-device-identity-requested(); } }
                                 }
                             }
                         }
@@ -489,7 +492,7 @@ export component MainWindow inherits Window {
                                 height: 82px; background: #ffffff; border-radius: 12px; border-width: 1px; border-color: #e5e7eb;
                                 HorizontalLayout { padding: 14px; spacing: 12px;
                                     VerticalLayout { Text { text: device.name + (device.current ? "  Current" : ""); font-weight: 600; } Text { text: device.platform + " · " + device.last-seen; color: #6b7280; } }
-                                    Button { text: device.revoked ? "Revoked" : "Revoke"; enabled: !device.revoked; clicked => { root.revoke-device-requested(device.name); } }
+                                    Button { text: device.revoked ? "Revoked" : "Revoke"; enabled: !device.revoked; clicked => { root.revoke-device-requested(device.id); } }
                                 }
                             }
                         }

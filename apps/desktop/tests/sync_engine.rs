@@ -634,6 +634,51 @@ async fn sse_disconnect_reconnects_and_cancellation_clears_connected_diagnostic(
 }
 
 #[tokio::test]
+async fn connected_idle_worker_does_not_poll_network_or_scan_outbox_repeatedly() {
+    let fixture = Fixture::new().await;
+    let engine = Arc::new(fixture.engine());
+    let (worker, _handle) = SyncWorker::new(engine);
+    let cancellation = CancellationToken::new();
+    let tasks = worker.start(&cancellation);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let requests = fixture
+                .transport
+                .requested_cursors
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len();
+            if requests >= 2 && fixture.transport.stream_attempts.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| unreachable!("worker did not reach connected idle"));
+    let before = fixture
+        .transport
+        .requested_cursors
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .len();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let after = fixture
+        .transport
+        .requested_cursors
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .len();
+    assert_eq!(before, after);
+    assert_eq!(fixture.transport.stream_attempts.load(Ordering::SeqCst), 1);
+    cancellation.cancel();
+    for task in tasks {
+        task.await
+            .unwrap_or_else(|error| unreachable!("worker task: {error}"));
+    }
+}
+
+#[tokio::test]
 async fn profile_switch_cancels_old_sync_worker_before_starting_the_new_one() {
     let fixture = Fixture::new().await;
     let services = Arc::new(SyncProfileServices::new(Arc::clone(&fixture.worker)));

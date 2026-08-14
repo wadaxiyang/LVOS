@@ -8,15 +8,15 @@ use std::{cell::RefCell, path::Path, rc::Rc};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::{path::PathBuf, sync::Arc};
 
-use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use lvos::{
-    GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, NativeReleasePageOpener,
-    UpdateCheckOutcome, UpdateCoordinator,
+    DesktopApplication, GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, LookupMode,
+    NativeReleasePageOpener, ProviderPreferences, UpdateCheckOutcome, UpdateCoordinator,
 };
+use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use slint::ComponentHandle;
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 #[cfg(target_os = "windows")]
 use lvos_platform::{
@@ -57,11 +57,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let runtime = DesktopRuntime::new(SlintUiDispatcher);
     let ui = UiController::new()?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let application = install_application_runtime(&ui, &runtime)?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     install_update_runtime(&ui, &runtime)?;
     #[cfg(target_os = "macos")]
-    let native = install_macos_runtime(&ui, &runtime, instance)?;
+    let native = install_macos_runtime(&ui, &runtime, instance, Arc::clone(&application))?;
     #[cfg(target_os = "windows")]
-    let native = install_windows_runtime(&ui, &runtime, instance, &log_path)?;
+    let native =
+        install_windows_runtime(&ui, &runtime, instance, &log_path, Arc::clone(&application))?;
     #[cfg(target_os = "macos")]
     if !load_boolean_preference("launch-minimized") {
         ui.show_main_window()?;
@@ -79,6 +82,774 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(native);
     runtime.shutdown();
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn install_application_runtime(
+    ui: &UiController,
+    runtime: &DesktopRuntime<SlintUiDispatcher>,
+) -> Result<Arc<DesktopApplication>, Box<dyn Error>> {
+    let credentials: Arc<dyn lvos_auth::CredentialStore> = {
+        #[cfg(target_os = "macos")]
+        {
+            Arc::new(lvos_platform::macos::MacOsCredentialStore)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Arc::new(lvos_platform::windows::WindowsCredentialStore)
+        }
+    };
+    let platform = {
+        #[cfg(target_os = "macos")]
+        {
+            lvos_storage::Platform::Macos
+        }
+        #[cfg(target_os = "windows")]
+        {
+            lvos_storage::Platform::Windows
+        }
+    };
+    let application = runtime.runtime_handle().block_on(DesktopApplication::open(
+        application_data_root(),
+        platform,
+        &device_name(),
+        credentials,
+    ))?;
+    let preferences = application.provider_preferences();
+    ui.main_window()
+        .set_primary_provider(provider_label(&preferences.primary).into());
+    ui.main_window().set_fallback_provider(
+        preferences
+            .fallback
+            .as_deref()
+            .map_or("Disabled", provider_label)
+            .into(),
+    );
+    let (tokenhub, google) = application.provider_configuration()?;
+    ui.main_window().set_tokenhub_configured(tokenhub);
+    ui.main_window().set_google_configured(google);
+    let profile = application.profile();
+    ui.main_window().set_server_url(
+        profile
+            .server_origin
+            .as_deref()
+            .unwrap_or(lvos_core::DEFAULT_SERVER_URL)
+            .into(),
+    );
+    ui.main_window()
+        .set_username(profile.username.as_deref().unwrap_or_default().into());
+    let installation = application.installation();
+    ui.main_window()
+        .set_current_device(installation.device_name.as_str().into());
+    let should_resume = profile.user_id.is_some();
+    ui.main_window().set_sync_status(
+        if should_resume {
+            "Restoring session…"
+        } else {
+            "Login required"
+        }
+        .into(),
+    );
+    install_local_ui_callbacks(ui, runtime, Arc::clone(&application));
+    refresh_history(
+        ui.main_window().as_weak(),
+        &runtime.runtime_handle(),
+        Arc::clone(&application),
+        String::new(),
+    );
+    refresh_favorites(
+        ui.main_window().as_weak(),
+        &runtime.runtime_handle(),
+        Arc::clone(&application),
+        String::new(),
+    );
+    if should_resume {
+        let main = ui.main_window().as_weak();
+        let resume_application = Arc::clone(&application);
+        let resume_handle = runtime.runtime_handle();
+        resume_handle.clone().spawn(async move {
+            match resume_application.resume_session().await {
+                Ok(()) => {
+                    apply_account_state(&main, &resume_application, "Connected");
+                    refresh_devices(main, &tokio::runtime::Handle::current(), resume_application);
+                }
+                Err(error) => apply_account_state(
+                    &main,
+                    &resume_application,
+                    &format!("Session restore failed: {error}"),
+                ),
+            }
+        });
+    }
+    Ok(application)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_lines)]
+fn install_local_ui_callbacks(
+    ui: &UiController,
+    runtime: &DesktopRuntime<SlintUiDispatcher>,
+    application: Arc<DesktopApplication>,
+) {
+    let handle = runtime.runtime_handle();
+    let main = ui.main_window().as_weak();
+    let history_application = Arc::clone(&application);
+    let history_handle = handle.clone();
+    ui.main_window().on_history_search(move |term| {
+        refresh_history(
+            main.clone(),
+            &history_handle,
+            Arc::clone(&history_application),
+            term.to_string(),
+        );
+    });
+
+    let main = ui.main_window().as_weak();
+    let favorites_application = Arc::clone(&application);
+    let favorites_handle = handle.clone();
+    ui.main_window().on_favorites_search(move |term| {
+        refresh_favorites(
+            main.clone(),
+            &favorites_handle,
+            Arc::clone(&favorites_application),
+            term.to_string(),
+        );
+    });
+
+    let main = ui.main_window().as_weak();
+    let toggle_application = Arc::clone(&application);
+    let toggle_handle = handle.clone();
+    ui.main_window()
+        .on_favorite_toggled(move |key, currently_active| {
+            let main = main.clone();
+            let application = Arc::clone(&toggle_application);
+            toggle_handle.spawn(async move {
+                if let Err(error) = application
+                    .set_favorite(key.to_string(), !currently_active)
+                    .await
+                {
+                    set_settings_error(&main, format!("Favorite update failed: {error}"));
+                    return;
+                }
+                refresh_history(
+                    main.clone(),
+                    &tokio::runtime::Handle::current(),
+                    Arc::clone(&application),
+                    String::new(),
+                );
+                refresh_favorites(
+                    main,
+                    &tokio::runtime::Handle::current(),
+                    application,
+                    String::new(),
+                );
+            });
+        });
+
+    let main = ui.main_window().as_weak();
+    let clear_application = Arc::clone(&application);
+    let clear_handle = handle.clone();
+    ui.main_window().on_clear_history_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&clear_application);
+        clear_handle.spawn(async move {
+            match application.clear_history().await {
+                Ok(()) => refresh_history(
+                    main,
+                    &tokio::runtime::Handle::current(),
+                    application,
+                    String::new(),
+                ),
+                Err(error) => set_settings_error(&main, format!("Clear History failed: {error}")),
+            }
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let settings_application = Arc::clone(&application);
+    ui.main_window().on_persist_provider_settings(
+        move |primary, fallback, tokenhub_key, google_key| {
+            let preferences = ProviderPreferences {
+                primary: provider_id(primary.as_str()).to_owned(),
+                fallback: (fallback.as_str() != "Disabled")
+                    .then(|| provider_id(fallback.as_str()).to_owned()),
+            };
+            match settings_application.save_provider_settings(
+                preferences,
+                tokenhub_key.as_str(),
+                google_key.as_str(),
+            ) {
+                Ok(()) => {
+                    if let Ok((tokenhub, google)) = settings_application.provider_configuration()
+                        && let Some(main) = main.upgrade()
+                    {
+                        main.set_tokenhub_configured(tokenhub);
+                        main.set_google_configured(google);
+                        main.set_settings_error("Provider settings saved.".into());
+                    }
+                }
+                Err(error) => set_settings_error(&main, error.to_string()),
+            }
+        },
+    );
+
+    let main = ui.main_window().as_weak();
+    let test_application = Arc::clone(&application);
+    let test_handle = handle.clone();
+    ui.main_window().on_test_provider(move |provider| {
+        let main = main.clone();
+        let application = Arc::clone(&test_application);
+        let provider = provider_id(provider.as_str()).to_owned();
+        test_handle.spawn(async move {
+            let message = match application.test_provider(&provider).await {
+                Ok(()) => "Provider test succeeded.".to_owned(),
+                Err(error) => format!("Provider test failed: {error}"),
+            };
+            set_settings_error(&main, message);
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let login_application = Arc::clone(&application);
+    let login_handle = handle.clone();
+    ui.main_window()
+        .on_login_requested(move |server, username, password| {
+            if let Some(main) = main.upgrade() {
+                main.set_sync_status("Signing in…".into());
+            }
+            let main = main.clone();
+            let application = Arc::clone(&login_application);
+            login_handle.spawn(async move {
+                match application
+                    .login(
+                        server.to_string(),
+                        username.to_string(),
+                        password.to_string(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        apply_account_state(&main, &application, "Connected");
+                        refresh_devices(
+                            main.clone(),
+                            &tokio::runtime::Handle::current(),
+                            Arc::clone(&application),
+                        );
+                        refresh_history(
+                            main.clone(),
+                            &tokio::runtime::Handle::current(),
+                            Arc::clone(&application),
+                            String::new(),
+                        );
+                        refresh_favorites(
+                            main,
+                            &tokio::runtime::Handle::current(),
+                            application,
+                            String::new(),
+                        );
+                    }
+                    Err(error) => {
+                        apply_account_state(&main, &application, &format!("Login failed: {error}"));
+                    }
+                }
+            });
+        });
+
+    let main = ui.main_window().as_weak();
+    let logout_application = Arc::clone(&application);
+    let logout_handle = handle.clone();
+    ui.main_window().on_logout_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&logout_application);
+        logout_handle.spawn(async move {
+            let status = match application.logout().await {
+                Ok(()) => "Login required".to_owned(),
+                Err(error) => format!("Logout completed locally; Server error: {error}"),
+            };
+            apply_account_state(&main, &application, &status);
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let manual_application = Arc::clone(&application);
+    let manual_handle = handle.clone();
+    ui.main_window().on_manual_sync_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&manual_application);
+        manual_handle.spawn(async move {
+            let status = if application.manual_sync().await {
+                "Sync requested"
+            } else {
+                "Login required"
+            };
+            apply_account_state(&main, &application, status);
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let connection_application = Arc::clone(&application);
+    let connection_handle = handle.clone();
+    ui.main_window().on_test_connection_requested(move || {
+        let origin = main
+            .upgrade()
+            .map(|main| main.get_server_url().to_string())
+            .unwrap_or_default();
+        let main = main.clone();
+        let application = Arc::clone(&connection_application);
+        connection_handle.spawn(async move {
+            let status = match application.test_connection(&origin).await {
+                Ok(()) => "Server compatibility check succeeded.".to_owned(),
+                Err(error) => format!("Server check failed: {error}"),
+            };
+            set_settings_error(&main, status);
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let revoke_application = Arc::clone(&application);
+    let revoke_handle = handle.clone();
+    ui.main_window().on_revoke_device_requested(move |device_id| {
+        let main = main.clone();
+        let application = Arc::clone(&revoke_application);
+        revoke_handle.spawn(async move {
+            let is_current = device_id.as_str() == application.installation().device_id.to_string();
+            if is_current {
+                let confirmed = rfd::AsyncMessageDialog::new()
+                    .set_title("Revoke this Device?")
+                    .set_description("This immediately logs out this installation. Its Device identity remains revoked until you explicitly replace it.")
+                    .set_buttons(rfd::MessageButtons::YesNo)
+                    .show()
+                    .await;
+                if confirmed != rfd::MessageDialogResult::Yes {
+                    return;
+                }
+            }
+            match application.revoke_device(device_id.as_str()).await {
+                Ok(()) if is_current => {
+                    let _ = application.logout().await;
+                    apply_account_state(&main, &application, "Device revoked · Login required");
+                }
+                Ok(()) => {
+                    refresh_devices(main, &tokio::runtime::Handle::current(), application);
+                }
+                Err(error) => set_settings_error(&main, format!("Device revoke failed: {error}")),
+            }
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let recovery_application = Arc::clone(&application);
+    let recovery_handle = handle.clone();
+    ui.main_window().on_regenerate_device_identity_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&recovery_application);
+        recovery_handle.spawn(async move {
+            let confirmed = rfd::AsyncMessageDialog::new()
+                .set_title("Replace revoked Device identity?")
+                .set_description("This creates a new permanent installation Device ID, removes old sessions, and preserves Profiles and pending Outbox data. Continue only after this installation was revoked.")
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                .await;
+            if confirmed != rfd::MessageDialogResult::Yes {
+                return;
+            }
+            match application.recover_revoked_device().await {
+                Ok(()) => apply_account_state(
+                    &main,
+                    &application,
+                    "Device identity replaced · Login again",
+                ),
+                Err(error) => set_settings_error(&main, format!("Device recovery failed: {error}")),
+            }
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let export_application = Arc::clone(&application);
+    let export_handle = handle.clone();
+    ui.main_window().on_export_data_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&export_application);
+        export_handle.spawn(async move {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .add_filter("LVOS Portable JSON", &["json"])
+                .set_file_name("lvos-export.json")
+                .save_file()
+                .await
+            else {
+                return;
+            };
+            let bytes = match application.export_portable_json().await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    set_settings_error(&main, format!("Export failed: {error}"));
+                    return;
+                }
+            };
+            let path = file.path().to_path_buf();
+            match tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await {
+                Ok(Ok(())) => set_settings_error(&main, "Export completed.".to_owned()),
+                Ok(Err(error)) => set_settings_error(&main, format!("Export failed: {error}")),
+                Err(error) => set_settings_error(&main, format!("Export task failed: {error}")),
+            }
+        });
+    });
+
+    let main = ui.main_window().as_weak();
+    let import_application = Arc::clone(&application);
+    let import_handle = handle.clone();
+    ui.main_window().on_import_data_requested(move || {
+        let main = main.clone();
+        let application = Arc::clone(&import_application);
+        import_handle.spawn(async move {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .add_filter("LVOS Portable JSON", &["json"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let path = file.path().to_path_buf();
+            let bytes = match tokio::task::spawn_blocking(move || {
+                let metadata = std::fs::metadata(&path)?;
+                if metadata.len() > u64::try_from(lvos_core::MAX_PORTABLE_JSON_BYTES).unwrap_or(u64::MAX) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Portable JSON exceeds 16 MiB",
+                    ));
+                }
+                std::fs::read(path)
+            })
+            .await
+            {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(error)) => {
+                    set_settings_error(&main, format!("Import read failed: {error}"));
+                    return;
+                }
+                Err(error) => {
+                    set_settings_error(&main, format!("Import task failed: {error}"));
+                    return;
+                }
+            };
+            let plan = match application.preview_portable_import(bytes).await {
+                Ok(plan) => plan,
+                Err(error) => {
+                    set_settings_error(&main, format!("Import validation failed: {error}"));
+                    return;
+                }
+            };
+            let preview = plan.preview();
+            let confirmed = rfd::AsyncMessageDialog::new()
+                .set_title("Import LVOS data?")
+                .set_description(format!(
+                    "History: {} add, {} update. Favorites: {} add, {} reactivate. QueryStats archive: {} records. No changes are made until you choose Yes.",
+                    preview.history_add,
+                    preview.history_update,
+                    preview.favorite_add,
+                    preview.favorite_reactivate,
+                    preview.query_stats_archive,
+                ))
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                .await;
+            if confirmed != rfd::MessageDialogResult::Yes {
+                set_settings_error(&main, "Import cancelled; no data changed.".to_owned());
+                return;
+            }
+            match application.apply_portable_import(plan).await {
+                Ok(result) => {
+                    set_settings_error(
+                        &main,
+                        format!(
+                            "Import completed: {} History added, {} Favorites added/reactivated.",
+                            result.history_add,
+                            result.favorite_add.saturating_add(result.favorite_reactivate),
+                        ),
+                    );
+                    refresh_history(
+                        main.clone(),
+                        &tokio::runtime::Handle::current(),
+                        Arc::clone(&application),
+                        String::new(),
+                    );
+                    refresh_favorites(
+                        main,
+                        &tokio::runtime::Handle::current(),
+                        application,
+                        String::new(),
+                    );
+                }
+                Err(error) => set_settings_error(&main, format!("Import failed: {error}")),
+            }
+        });
+    });
+
+    let popup = ui.popup().as_weak();
+    let popup_application = Arc::clone(&application);
+    let popup_handle = handle.clone();
+    ui.popup().on_favorite_toggled(move || {
+        let Some(popup) = popup.upgrade() else { return };
+        let application = Arc::clone(&popup_application);
+        let popup = popup.as_weak();
+        let currently_active = popup.upgrade().is_some_and(|popup| popup.get_favorite());
+        popup_handle.spawn(async move {
+            if application
+                .set_last_favorite(!currently_active)
+                .await
+                .is_ok()
+                && let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(popup) = popup.upgrade() {
+                        popup.set_favorite(!currently_active);
+                    }
+                })
+            {
+                tracing::warn!(%error, "failed to update Popup Favorite state");
+            }
+        });
+    });
+
+    let popup = ui.popup().as_weak();
+    let refresh_application = application;
+    ui.popup().on_refresh_requested(move || {
+        let popup = popup.clone();
+        let application = Arc::clone(&refresh_application);
+        handle.spawn(async move {
+            if let Some(state) = application.refresh_last().await
+                && application.is_current(&state)
+                && let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(popup) = popup.upgrade()
+                        && let Err(error) = lvos::show_lookup_state(&popup, &state)
+                    {
+                        tracing::warn!(%error, "failed to show refreshed Lookup Card");
+                    }
+                })
+            {
+                tracing::warn!(%error, "failed to dispatch refreshed Lookup Card");
+            }
+        });
+    });
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_history(
+    main: slint::Weak<lvos::MainWindow>,
+    handle: &tokio::runtime::Handle,
+    application: Arc<DesktopApplication>,
+    term: String,
+) {
+    handle.spawn(async move {
+        match application.history(term).await {
+            Ok(records) => {
+                if let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(main) = main.upgrade() {
+                        let records: Vec<lvos::UiRecord> = records
+                            .iter()
+                            .map(|record| {
+                                lvos::ui_record(
+                                    record.key,
+                                    &record.source,
+                                    &record.translation,
+                                    record.count,
+                                    record.favorite,
+                                    &record.metadata,
+                                )
+                            })
+                            .collect();
+                        main.set_history_records(ModelRc::new(VecModel::from(records)));
+                    }
+                }) {
+                    tracing::warn!(%error, "failed to dispatch History records");
+                }
+            }
+            Err(error) => set_settings_error(&main, format!("History load failed: {error}")),
+        }
+    });
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_favorites(
+    main: slint::Weak<lvos::MainWindow>,
+    handle: &tokio::runtime::Handle,
+    application: Arc<DesktopApplication>,
+    term: String,
+) {
+    handle.spawn(async move {
+        match application.favorites(term).await {
+            Ok(records) => {
+                if let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(main) = main.upgrade() {
+                        let records: Vec<lvos::UiRecord> = records
+                            .iter()
+                            .map(|record| {
+                                lvos::ui_record(
+                                    record.key,
+                                    &record.source,
+                                    &record.translation,
+                                    record.count,
+                                    record.favorite,
+                                    &record.metadata,
+                                )
+                            })
+                            .collect();
+                        main.set_favorite_records(ModelRc::new(VecModel::from(records)));
+                    }
+                }) {
+                    tracing::warn!(%error, "failed to dispatch Favorite records");
+                }
+            }
+            Err(error) => set_settings_error(&main, format!("Favorites load failed: {error}")),
+        }
+    });
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_devices(
+    main: slint::Weak<lvos::MainWindow>,
+    handle: &tokio::runtime::Handle,
+    application: Arc<DesktopApplication>,
+) {
+    handle.spawn(async move {
+        match application.devices().await {
+            Ok(devices) => {
+                let current = application.installation().device_id.to_string();
+                if let Err(error) = slint::invoke_from_event_loop(move || {
+                    if let Some(main) = main.upgrade() {
+                        let records: Vec<lvos::DeviceRecord> = devices
+                            .into_iter()
+                            .map(|device| lvos::DeviceRecord {
+                                id: device.device_id.clone().into(),
+                                name: device
+                                    .device_name
+                                    .unwrap_or_else(|| device.device_id.clone())
+                                    .into(),
+                                platform: device.platform.into(),
+                                last_seen: format!("Unix {}", device.last_seen_at).into(),
+                                current: device.device_id == current,
+                                revoked: device.revoked_at.is_some(),
+                            })
+                            .collect();
+                        main.set_devices(ModelRc::new(VecModel::from(records)));
+                    }
+                }) {
+                    tracing::warn!(%error, "failed to dispatch Devices");
+                }
+            }
+            Err(error) => set_settings_error(&main, format!("Devices load failed: {error}")),
+        }
+    });
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn apply_account_state(
+    main: &slint::Weak<lvos::MainWindow>,
+    application: &DesktopApplication,
+    status: &str,
+) {
+    let profile = application.profile();
+    let preferences = application.provider_preferences();
+    let configured = application.provider_configuration().unwrap_or_default();
+    let main = main.clone();
+    let status = status.to_owned();
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(main) = main.upgrade() {
+            main.set_server_url(
+                profile
+                    .server_origin
+                    .as_deref()
+                    .unwrap_or(lvos_core::DEFAULT_SERVER_URL)
+                    .into(),
+            );
+            main.set_username(profile.username.as_deref().unwrap_or_default().into());
+            main.set_primary_provider(provider_label(&preferences.primary).into());
+            main.set_fallback_provider(
+                preferences
+                    .fallback
+                    .as_deref()
+                    .map_or("Disabled", provider_label)
+                    .into(),
+            );
+            main.set_tokenhub_configured(configured.0);
+            main.set_google_configured(configured.1);
+            main.set_sync_status(status.into());
+        }
+    }) {
+        tracing::warn!(%error, "failed to dispatch account state");
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn set_settings_error(main: &slint::Weak<lvos::MainWindow>, message: String) {
+    let main = main.clone();
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(main) = main.upgrade() {
+            main.set_settings_error(message.into());
+        }
+    }) {
+        tracing::warn!(%error, "failed to dispatch Desktop status");
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn provider_id(label: &str) -> &str {
+    match label {
+        "Tencent TokenHub" => lvos_translation::DEFAULT_PRIMARY_PROVIDER,
+        "Google Basic v2" => lvos_translation::DEFAULT_FALLBACK_PROVIDER,
+        value => value,
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn provider_label(provider: &str) -> &str {
+    match provider {
+        lvos_translation::DEFAULT_PRIMARY_PROVIDER => "Tencent TokenHub",
+        lvos_translation::DEFAULT_FALLBACK_PROVIDER => "Google Basic v2",
+        value => value,
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn device_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "LVOS Device".to_owned())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+async fn show_captured_lookup(
+    application: Arc<DesktopApplication>,
+    popup: slint::Weak<lvos::QuickLookupPopup>,
+    source: String,
+) {
+    let loading = application.begin_lookup(source.clone());
+    let generation = loading.generation().unwrap_or(0);
+    let loading_popup = popup.clone();
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(popup) = loading_popup.upgrade()
+            && let Err(error) = lvos::show_lookup_state(&popup, &loading)
+        {
+            tracing::warn!(%error, "failed to show loading Lookup Card");
+        }
+    }) {
+        tracing::warn!(%error, "failed to dispatch loading Lookup Card");
+    }
+    let state = application
+        .complete_lookup(generation, source, LookupMode::UseCache)
+        .await;
+    if !application.is_current(&state) {
+        return;
+    }
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(popup) = popup.upgrade()
+            && let Err(error) = lvos::show_lookup_state(&popup, &state)
+        {
+            tracing::warn!(%error, "failed to show Lookup Card result");
+        }
+    }) {
+        tracing::warn!(%error, "failed to dispatch Lookup Card result");
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -212,6 +983,7 @@ fn install_windows_runtime(
     runtime: &DesktopRuntime<SlintUiDispatcher>,
     instance: Box<dyn lvos_platform::SingleInstanceGuard>,
     log_path: &Path,
+    application: Arc<DesktopApplication>,
 ) -> Result<WindowsRuntime, Box<dyn Error>> {
     let main = ui.main_window().as_weak();
     instance.set_open_handler(Arc::new(move || {
@@ -263,20 +1035,13 @@ fn install_windows_runtime(
         let popup = popup.clone();
         let capture = Arc::clone(&capture);
         let capture_log_path = capture_log_path.clone();
+        let application = Arc::clone(&application);
         async_runtime.spawn(async move {
             tracing::info!(timeout_ms = 800_u64, "Windows selection capture task started");
             match capture.capture_selected_text(std::time::Duration::from_millis(800)).await {
                 Ok(source) => {
                     tracing::info!(selected_text_bytes = source.len(), "Windows selection capture completed");
-                    if let Err(error) = slint::invoke_from_event_loop(move || {
-                        if let Some(popup) = popup.upgrade()
-                            && let Err(error) = lvos::show_captured_provider_error(&popup, &source)
-                        {
-                            tracing::warn!(%error, "failed to show captured Lookup Card");
-                        }
-                    }) {
-                        tracing::warn!(%error, "failed to dispatch captured selection");
-                    }
+                    show_captured_lookup(application, popup, source).await;
                 }
                 Err(lvos_platform::CaptureError::Busy) => {}
                 Err(error) => {
@@ -371,6 +1136,7 @@ fn install_macos_runtime(
     ui: &UiController,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
     instance: Box<dyn lvos_platform::SingleInstanceGuard>,
+    application: Arc<DesktopApplication>,
 ) -> Result<MacOsRuntime, Box<dyn Error>> {
     let main = ui.main_window().as_weak();
     instance.set_open_handler(Arc::new(move || {
@@ -425,21 +1191,14 @@ fn install_macos_runtime(
         let popup = popup.clone();
         let permission = permission.clone();
         let capture = Arc::clone(&capture);
+        let application = Arc::clone(&application);
         async_runtime.spawn(async move {
             match capture
                 .capture_selected_text(std::time::Duration::from_millis(800))
                 .await
             {
                 Ok(source) => {
-                    if let Err(error) = slint::invoke_from_event_loop(move || {
-                        if let Some(popup) = popup.upgrade()
-                            && let Err(error) = lvos::show_captured_provider_error(&popup, &source)
-                        {
-                            tracing::warn!(%error, "failed to show captured Lookup Card");
-                        }
-                    }) {
-                        tracing::warn!(%error, "failed to dispatch captured selection");
-                    }
+                    show_captured_lookup(application, popup, source).await;
                 }
                 Err(lvos_platform::CaptureError::Busy) => {}
                 Err(lvos_platform::CaptureError::PermissionDenied) => {
