@@ -1,6 +1,7 @@
 use std::{error::Error, fmt, str::FromStr, sync::Arc};
 
 use lvos_core::{ContentKey, UnixTimestamp};
+use lvos_storage::{PortableImportPlan, PortableImportResult};
 
 use crate::{DatabaseWorker, SyncWorkerHandle};
 
@@ -148,6 +149,51 @@ impl UiDataService {
             .execute(lvos_storage::ProfileDatabase::clear_history)
             .await
             .map_err(UiDataError::Database)
+    }
+
+    /// Produces the bounded portable JSON payload for a native save-file workflow.
+    ///
+    /// # Errors
+    /// Returns an error when the active Profile cannot be exported.
+    pub async fn export_portable_json(&self) -> Result<Vec<u8>, UiDataError> {
+        self.database
+            .export_portable_json()
+            .await
+            .map_err(UiDataError::Database)
+    }
+
+    /// Fully validates a selected portable JSON document and returns its merge preview ticket.
+    ///
+    /// # Errors
+    /// Returns an error when the active Profile cannot be read or the document is invalid.
+    pub async fn preview_portable_import(
+        &self,
+        bytes: Vec<u8>,
+    ) -> Result<PortableImportPlan, UiDataError> {
+        self.database
+            .preview_portable_import(bytes)
+            .await
+            .map_err(UiDataError::Database)
+    }
+
+    /// Applies a confirmed preview and wakes Favorite synchronization afterward.
+    ///
+    /// # Errors
+    /// Returns an error when the active Profile changed or the import transaction fails.
+    pub async fn apply_portable_import(
+        &self,
+        plan: PortableImportPlan,
+        now: UnixTimestamp,
+    ) -> Result<PortableImportResult, UiDataError> {
+        let result = self
+            .database
+            .apply_portable_import(plan, now)
+            .await
+            .map_err(UiDataError::Database)?;
+        if let Some(sync) = &self.sync {
+            sync.wake();
+        }
+        Ok(result)
     }
 }
 

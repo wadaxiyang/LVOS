@@ -7,7 +7,11 @@ use std::{
     thread::{self, JoinHandle, ThreadId},
 };
 
-use lvos_storage::{ProfileDatabase, ProfileMetadata, ProfilePaths, StorageError};
+use lvos_core::UnixTimestamp;
+use lvos_storage::{
+    PortableDataError, PortableImportPlan, PortableImportResult, ProfileDatabase, ProfileMetadata,
+    ProfilePaths, StorageError,
+};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -100,6 +104,61 @@ impl DatabaseWorker {
                 .as_mut()
                 .ok_or(DatabaseWorkerError::NoActiveProfile)?;
             operation(database).map_err(DatabaseWorkerError::Storage)
+        })
+        .await
+    }
+
+    /// Exports portable data from the active Profile on the database thread.
+    ///
+    /// # Errors
+    /// Returns an error when no Profile is active or export validation fails.
+    pub async fn export_portable_json(&self) -> Result<Vec<u8>, DatabaseWorkerError> {
+        self.schedule(|state| {
+            state
+                .active
+                .as_ref()
+                .ok_or(DatabaseWorkerError::NoActiveProfile)?
+                .export_portable_json()
+                .map_err(DatabaseWorkerError::PortableData)
+        })
+        .await
+    }
+
+    /// Validates portable JSON and calculates its merge preview on the database thread.
+    ///
+    /// # Errors
+    /// Returns an error when no Profile is active or the document is invalid.
+    pub async fn preview_portable_import(
+        &self,
+        bytes: Vec<u8>,
+    ) -> Result<PortableImportPlan, DatabaseWorkerError> {
+        self.schedule(move |state| {
+            state
+                .active
+                .as_ref()
+                .ok_or(DatabaseWorkerError::NoActiveProfile)?
+                .preview_portable_import(&bytes)
+                .map_err(DatabaseWorkerError::PortableData)
+        })
+        .await
+    }
+
+    /// Applies a previously validated portable import on the database thread.
+    ///
+    /// # Errors
+    /// Returns an error when no Profile is active, the Profile changed, or the transaction fails.
+    pub async fn apply_portable_import(
+        &self,
+        plan: PortableImportPlan,
+        now: UnixTimestamp,
+    ) -> Result<PortableImportResult, DatabaseWorkerError> {
+        self.schedule(move |state| {
+            state
+                .active
+                .as_mut()
+                .ok_or(DatabaseWorkerError::NoActiveProfile)?
+                .apply_portable_import(plan, now)
+                .map_err(DatabaseWorkerError::PortableData)
         })
         .await
     }
@@ -330,6 +389,7 @@ pub enum DatabaseWorkerError {
     NoActiveProfile,
     InvalidResultType,
     Storage(StorageError),
+    PortableData(PortableDataError),
 }
 
 impl fmt::Display for DatabaseWorkerError {
@@ -342,6 +402,9 @@ impl fmt::Display for DatabaseWorkerError {
                 formatter.write_str("database worker returned an invalid type")
             }
             Self::Storage(error) => write!(formatter, "Profile storage failed: {error}"),
+            Self::PortableData(error) => {
+                write!(formatter, "Portable data operation failed: {error}")
+            }
         }
     }
 }
@@ -351,6 +414,7 @@ impl Error for DatabaseWorkerError {
         match self {
             Self::Start(error) => Some(error),
             Self::Storage(error) => Some(error),
+            Self::PortableData(error) => Some(error),
             Self::Unavailable | Self::NoActiveProfile | Self::InvalidResultType => None,
         }
     }

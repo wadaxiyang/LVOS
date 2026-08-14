@@ -2,6 +2,7 @@
 
 mod installation;
 mod model;
+mod portable;
 mod profile;
 mod sync;
 
@@ -9,6 +10,11 @@ pub use installation::{InstallationMetadata, InstallationStore, Platform};
 pub use model::{
     Favorite, HistoryEntry, OutboxEvent, OutboxOperation, ProfileMetadata, QueryStats,
     StoredContent, SyncDiagnostics, TranslationSnapshot,
+};
+pub use portable::{
+    PortableContent, PortableDataError, PortableDataExport, PortableFavorite, PortableHistory,
+    PortableImportPlan, PortableImportPreview, PortableImportResult, PortableProfile,
+    PortableQueryStatsArchive, PortableTranslation,
 };
 pub use profile::{BackupArtifact, ProfileDatabase, ProfilePaths, SCHEMA_VERSION};
 pub use sync::{AcknowledgedEvent, ConflictResolution};

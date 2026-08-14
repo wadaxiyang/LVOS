@@ -356,45 +356,7 @@ impl ProfileDatabase {
         now: UnixTimestamp,
     ) -> Result<Favorite, StorageError> {
         let transaction = self.connection.transaction()?;
-        let history = transaction
-            .query_row(
-                &format!("{HISTORY_SELECT} WHERE content_key=?1"),
-                [key.to_string()],
-                read_history,
-            )
-            .optional()?
-            .map(parse_history)
-            .transpose()?
-            .ok_or(StorageError::MissingHistory)?;
-        let stats = query_stats_tx(&transaction, key)?.ok_or(StorageError::InvalidData(
-            "favorite query stats are missing",
-        ))?;
-        let existing = favorite_tx(&transaction, key)?;
-        if existing
-            .as_ref()
-            .is_some_and(|favorite| favorite.deleted_at.is_none())
-        {
-            transaction.commit()?;
-            return existing.ok_or(StorageError::InvalidData("favorite disappeared"));
-        }
-        let entity_revision = existing
-            .as_ref()
-            .map_or(0, |favorite| favorite.entity_revision);
-        transaction.execute(
-            "INSERT INTO favorites (content_key, key_version, kind, source_lang, target_lang, source_text, canonical_text, translation, provider, created_at, updated_at, deleted_at, entity_revision)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, NULL, ?11)
-             ON CONFLICT(content_key) DO UPDATE SET key_version=excluded.key_version, kind=excluded.kind, source_lang=excluded.source_lang, target_lang=excluded.target_lang, source_text=excluded.source_text, canonical_text=excluded.canonical_text, translation=excluded.translation, provider=excluded.provider, created_at=excluded.created_at, updated_at=excluded.updated_at, deleted_at=NULL",
-            params![key.to_string(), history.content.key_version, history.content.kind.protocol_name(), history.content.source_lang.as_str(), history.translation.target_lang.as_str(), history.content.source_text, history.content.canonical_text, history.translation.translation, history.translation.provider, now.as_seconds(), to_i64(entity_revision)?],
-        )?;
-        upsert_favorite_event(
-            &transaction,
-            key,
-            "active",
-            entity_revision,
-            stats,
-            now,
-            OutboxOperation::FavoriteUpsert,
-        )?;
+        favorite_from_history_tx(&transaction, key, now)?;
         transaction.commit()?;
         self.favorite_by_key(key)?
             .ok_or(StorageError::InvalidData("favorite upsert disappeared"))
@@ -620,8 +582,8 @@ impl ProfileDatabase {
     }
 }
 
-const HISTORY_SELECT: &str = "SELECT content_key, key_version, kind, source_lang, target_lang, source_text, canonical_text, translation, provider, last_queried_at, translation_updated_at FROM history_entries";
-type HistoryRow = (
+pub(crate) const HISTORY_SELECT: &str = "SELECT content_key, key_version, kind, source_lang, target_lang, source_text, canonical_text, translation, provider, last_queried_at, translation_updated_at FROM history_entries";
+pub(crate) type HistoryRow = (
     String,
     i64,
     String,
@@ -635,7 +597,7 @@ type HistoryRow = (
     i64,
 );
 
-fn read_history(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRow> {
+pub(crate) fn read_history(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -651,7 +613,7 @@ fn read_history(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRow> {
     ))
 }
 
-fn parse_history(row: HistoryRow) -> Result<HistoryEntry, StorageError> {
+pub(crate) fn parse_history(row: HistoryRow) -> Result<HistoryEntry, StorageError> {
     Ok(HistoryEntry {
         content: StoredContent {
             content_key: parse_key(&row.0)?,
@@ -671,7 +633,10 @@ fn parse_history(row: HistoryRow) -> Result<HistoryEntry, StorageError> {
     })
 }
 
-fn upsert_history(transaction: &Transaction<'_>, entry: &HistoryEntry) -> Result<(), StorageError> {
+pub(crate) fn upsert_history(
+    transaction: &Transaction<'_>,
+    entry: &HistoryEntry,
+) -> Result<(), StorageError> {
     transaction.execute(
         "INSERT INTO history_entries (content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,last_queried_at,translation_updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
          ON CONFLICT(content_key) DO UPDATE SET key_version=excluded.key_version,kind=excluded.kind,source_lang=excluded.source_lang,target_lang=excluded.target_lang,source_text=excluded.source_text,canonical_text=excluded.canonical_text,translation=excluded.translation,provider=excluded.provider,last_queried_at=excluded.last_queried_at,translation_updated_at=excluded.translation_updated_at",
@@ -680,7 +645,7 @@ fn upsert_history(transaction: &Transaction<'_>, entry: &HistoryEntry) -> Result
     Ok(())
 }
 
-fn query_stats_tx(
+pub(crate) fn query_stats_tx(
     transaction: &Transaction<'_>,
     key: ContentKey,
 ) -> Result<Option<QueryStats>, StorageError> {
@@ -722,9 +687,9 @@ fn parse_query_stats(row: StatsRow) -> Result<QueryStats, StorageError> {
     })
 }
 
-const FAVORITE_SELECT_FIELDS: &str = "SELECT content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,created_at,updated_at,deleted_at,entity_revision FROM favorites";
+pub(crate) const FAVORITE_SELECT_FIELDS: &str = "SELECT content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,created_at,updated_at,deleted_at,entity_revision FROM favorites";
 const FAVORITE_SELECT: &str = "SELECT content_key,key_version,kind,source_lang,target_lang,source_text,canonical_text,translation,provider,created_at,updated_at,deleted_at,entity_revision FROM favorites WHERE content_key=?1";
-type FavoriteRow = (
+pub(crate) type FavoriteRow = (
     String,
     i64,
     String,
@@ -739,7 +704,7 @@ type FavoriteRow = (
     Option<i64>,
     i64,
 );
-fn read_favorite(row: &rusqlite::Row<'_>) -> rusqlite::Result<FavoriteRow> {
+pub(crate) fn read_favorite(row: &rusqlite::Row<'_>) -> rusqlite::Result<FavoriteRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -756,7 +721,7 @@ fn read_favorite(row: &rusqlite::Row<'_>) -> rusqlite::Result<FavoriteRow> {
         row.get(12)?,
     ))
 }
-fn parse_favorite(row: FavoriteRow) -> Result<Favorite, StorageError> {
+pub(crate) fn parse_favorite(row: FavoriteRow) -> Result<Favorite, StorageError> {
     Ok(Favorite {
         content: StoredContent {
             content_key: parse_key(&row.0)?,
@@ -778,7 +743,7 @@ fn parse_favorite(row: FavoriteRow) -> Result<Favorite, StorageError> {
         entity_revision: to_u64(row.12)?,
     })
 }
-fn favorite_tx(
+pub(crate) fn favorite_tx(
     transaction: &Transaction<'_>,
     key: ContentKey,
 ) -> Result<Option<Favorite>, StorageError> {
@@ -799,6 +764,68 @@ fn favorite_connection(
         .map_err(StorageError::from)?
         .map(parse_favorite)
         .transpose()
+}
+
+pub(crate) fn favorite_from_history_tx(
+    transaction: &Transaction<'_>,
+    key: ContentKey,
+    now: UnixTimestamp,
+) -> Result<Favorite, StorageError> {
+    let history = transaction
+        .query_row(
+            &format!("{HISTORY_SELECT} WHERE content_key=?1"),
+            [key.to_string()],
+            read_history,
+        )
+        .optional()?
+        .map(parse_history)
+        .transpose()?
+        .ok_or(StorageError::MissingHistory)?;
+    let stats = query_stats_tx(transaction, key)?.ok_or(StorageError::InvalidData(
+        "favorite query stats are missing",
+    ))?;
+    let existing = favorite_tx(transaction, key)?;
+    if let Some(existing) = existing.as_ref()
+        && existing.deleted_at.is_none()
+    {
+        return Ok(existing.clone());
+    }
+    let entity_revision = existing
+        .as_ref()
+        .map_or(0, |favorite| favorite.entity_revision);
+    transaction.execute(
+        "INSERT INTO favorites (content_key, key_version, kind, source_lang, target_lang,
+         source_text, canonical_text, translation, provider, created_at, updated_at, deleted_at,
+         entity_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,NULL,?11)
+         ON CONFLICT(content_key) DO UPDATE SET key_version=excluded.key_version,
+         kind=excluded.kind,source_lang=excluded.source_lang,target_lang=excluded.target_lang,
+         source_text=excluded.source_text,canonical_text=excluded.canonical_text,
+         translation=excluded.translation,provider=excluded.provider,created_at=excluded.created_at,
+         updated_at=excluded.updated_at,deleted_at=NULL",
+        params![
+            key.to_string(),
+            history.content.key_version,
+            history.content.kind.protocol_name(),
+            history.content.source_lang.as_str(),
+            history.translation.target_lang.as_str(),
+            history.content.source_text,
+            history.content.canonical_text,
+            history.translation.translation,
+            history.translation.provider,
+            now.as_seconds(),
+            to_i64(entity_revision)?
+        ],
+    )?;
+    upsert_favorite_event(
+        transaction,
+        key,
+        "active",
+        entity_revision,
+        stats,
+        now,
+        OutboxOperation::FavoriteUpsert,
+    )?;
+    favorite_tx(transaction, key)?.ok_or(StorageError::InvalidData("favorite upsert disappeared"))
 }
 
 fn upsert_query_stats_event(

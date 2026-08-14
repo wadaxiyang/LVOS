@@ -132,3 +132,56 @@ async fn invalid_ui_content_identity_is_rejected_before_database_mutation() {
         Err(UiDataError::InvalidContentKey)
     ));
 }
+
+#[tokio::test]
+async fn portable_preview_and_apply_stay_behind_the_database_worker_boundary() {
+    let directory = tempdir().unwrap_or_else(|error| unreachable!("fixture: {error}"));
+    let worker = Arc::new(
+        DatabaseWorker::start(directory.path().to_path_buf())
+            .unwrap_or_else(|error| unreachable!("worker: {error}")),
+    );
+    worker
+        .switch_profile(metadata())
+        .await
+        .unwrap_or_else(|error| unreachable!("source profile: {error}"));
+    let entry = history("Portable worker", "异步边界");
+    let key = entry.content.content_key;
+    worker
+        .execute(move |database| {
+            database.record_successful_query(&entry)?;
+            database.favorite(key, UnixTimestamp::from_seconds(1_780_000_002))?;
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|error| unreachable!("seed: {error}"));
+    let service = UiDataService::new(Arc::clone(&worker));
+    let bytes = service
+        .export_portable_json()
+        .await
+        .unwrap_or_else(|error| unreachable!("export: {error}"));
+
+    worker
+        .switch_profile(metadata())
+        .await
+        .unwrap_or_else(|error| unreachable!("target profile: {error}"));
+    let plan = service
+        .preview_portable_import(bytes)
+        .await
+        .unwrap_or_else(|error| unreachable!("preview: {error}"));
+    assert_eq!(plan.preview().history_add, 1);
+    assert_eq!(plan.preview().favorite_add, 1);
+    let result = service
+        .apply_portable_import(plan, UnixTimestamp::from_seconds(1_780_000_003))
+        .await
+        .unwrap_or_else(|error| unreachable!("apply: {error}"));
+    assert_eq!(result.history_add, 1);
+    assert_eq!(result.favorite_add, 1);
+    assert_eq!(
+        service
+            .favorites(String::new(), 20)
+            .await
+            .unwrap_or_default()
+            .len(),
+        1
+    );
+}
