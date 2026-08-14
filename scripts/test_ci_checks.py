@@ -55,6 +55,18 @@ class WorkspaceCheckTests(unittest.TestCase):
             ["LVOS_APP_ENV", "LVOS_BIND_ADDR"],
         )
 
+    def test_tag_workflow_publishes_without_repeating_ci(self) -> None:
+        release = (Path(__file__).parent.parent / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        continuous = (Path(__file__).parent.parent / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("  quality:\n", release)
+        self.assertNotIn("--draft", release)
+        self.assertIn("--latest", release)
+        self.assertIn("branches:", continuous)
+
     def test_release_zip_and_manifest_are_deterministic_and_hashed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:
             directory = Path(raw_directory)

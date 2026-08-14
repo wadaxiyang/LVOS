@@ -1,6 +1,6 @@
-# LVOS 0.1.0 unsigned release notes
+# LVOS unsigned release notes
 
-This is the first LVOS V1 release candidate for Windows 11 x86_64 and macOS 15 arm64.
+This is a stable LVOS V1 release for Windows 11 x86_64 and macOS 15 arm64.
 
 ## Highlights
 
@@ -17,10 +17,10 @@ LVOS V1 desktop packages are intentionally unsigned. Download artifacts only fro
 [`wadaxiyang/LVOS` GitHub Releases page](https://github.com/wadaxiyang/LVOS/releases), then compare
 the file's SHA-256 with `SHA256SUMS` and `lvos-update-stable.json` before opening it.
 
-Expected assets for version `0.1.0`:
+Expected assets for the published version:
 
-- `LVOS-0.1.0-macos-arm64.zip`
-- `LVOS-0.1.0-windows-x86_64.zip`
+- `LVOS-<version>-macos-arm64.zip`
+- `LVOS-<version>-windows-x86_64.zip`
 - `lvos-update-stable.json`
 - `SHA256SUMS`
 
@@ -45,8 +45,7 @@ version before manually replacing it; Profile databases and settings remain in t
 data directory rather than inside the application package.
 
 Before upgrading, quit LVOS and make a Portable Data export if desired. Private Server operators
-should also create a consistent Server backup before rebuilding. A fresh install and a manual
-replacement must both be exercised on the target OS before this candidate is tagged as V1.
+should also create a consistent Server backup before rebuilding.
 
-See the [V1 known limitations](https://github.com/wadaxiyang/LVOS/blob/v0.1.0/KNOWN_LIMITATIONS.md)
+See the [V1 known limitations](https://github.com/wadaxiyang/LVOS/blob/main/KNOWN_LIMITATIONS.md)
 before distribution.

@@ -190,7 +190,10 @@ impl UiController {
         });
         let settings = controller.main_window.as_weak();
         controller.main_window.on_validate_provider_settings(
-            move |primary, fallback, tokenhub_key, google_key| {
+            move |primary, fallback, tokenhub_model, tokenhub_key, google_key| {
+                if lvos_translation::validate_tokenhub_model(&tokenhub_model).is_err() {
+                    return "Tencent TokenHub model must be 1-128 characters without whitespace or control characters".into();
+                }
                 let Some(settings) = settings.upgrade() else {
                     return "Settings window is unavailable".into();
                 };
@@ -304,6 +307,9 @@ impl UiController {
         }
         #[cfg(target_os = "windows")]
         {
+            // A Loading card can be replaced by Ready/Error while it is still visible. Stop the
+            // previous hook before installing its replacement so their lifetimes cannot overlap.
+            self.outside_click_monitor.borrow_mut().take();
             windows_window::prepare_no_activate(self.popup.window())?;
             self.popup.show().map_err(UiControllerError::Platform)?;
             windows_window::configure_visible_popup(self.popup.window())?;
@@ -403,6 +409,10 @@ mod windows_window {
     pub(super) fn show_without_activation_and_monitor(
         popup: &QuickLookupPopup,
     ) -> Result<(), UiControllerError> {
+        // Runtime state transitions display the same Popup repeatedly (Loading -> Ready/Error).
+        // Tear down the old hook first; replacing it after installation lets the old hook's
+        // cleanup race with the new one.
+        WINDOWS_POPUP_MONITOR.with(|active| active.borrow_mut().take());
         let hwnd = native_hwnd(popup.window())?;
         set_popup_style(hwnd, true);
         popup.show().map_err(UiControllerError::Platform)?;

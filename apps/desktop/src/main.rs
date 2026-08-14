@@ -125,6 +125,8 @@ fn install_application_runtime(
             .map_or("Disabled", provider_label)
             .into(),
     );
+    ui.main_window()
+        .set_tokenhub_model(preferences.tokenhub_model.clone().into());
     let (tokenhub, google) = application.provider_configuration()?;
     ui.main_window().set_tokenhub_configured(tokenhub);
     ui.main_window().set_google_configured(google);
@@ -268,11 +270,12 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let settings_application = Arc::clone(&application);
     ui.main_window().on_persist_provider_settings(
-        move |primary, fallback, tokenhub_key, google_key| {
+        move |primary, fallback, tokenhub_model, tokenhub_key, google_key| {
             let preferences = ProviderPreferences {
                 primary: provider_id(primary.as_str()).to_owned(),
                 fallback: (fallback.as_str() != "Disabled")
                     .then(|| provider_id(fallback.as_str()).to_owned()),
+                tokenhub_model: tokenhub_model.to_string(),
             };
             match settings_application.save_provider_settings(
                 preferences,
@@ -280,9 +283,11 @@ fn install_local_ui_callbacks(
                 google_key.as_str(),
             ) {
                 Ok(()) => {
+                    let tokenhub_model = settings_application.provider_preferences().tokenhub_model;
                     if let Ok((tokenhub, google)) = settings_application.provider_configuration()
                         && let Some(main) = main.upgrade()
                     {
+                        main.set_tokenhub_model(tokenhub_model.into());
                         main.set_tokenhub_configured(tokenhub);
                         main.set_google_configured(google);
                         main.set_settings_error("Provider settings saved.".into());
@@ -296,18 +301,20 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let test_application = Arc::clone(&application);
     let test_handle = handle.clone();
-    ui.main_window().on_test_provider(move |provider| {
-        let main = main.clone();
-        let application = Arc::clone(&test_application);
-        let provider = provider_id(provider.as_str()).to_owned();
-        test_handle.spawn(async move {
-            let message = match application.test_provider(&provider).await {
-                Ok(()) => "Provider test succeeded.".to_owned(),
-                Err(error) => format!("Provider test failed: {error}"),
-            };
-            set_settings_error(&main, message);
+    ui.main_window()
+        .on_test_provider(move |provider, tokenhub_model| {
+            let main = main.clone();
+            let application = Arc::clone(&test_application);
+            let provider = provider_id(provider.as_str()).to_owned();
+            let tokenhub_model = tokenhub_model.to_string();
+            test_handle.spawn(async move {
+                let message = match application.test_provider(&provider, &tokenhub_model).await {
+                    Ok(()) => "Provider test succeeded.".to_owned(),
+                    Err(error) => format!("Provider test failed: {error}"),
+                };
+                set_settings_error(&main, message);
+            });
         });
-    });
 
     let main = ui.main_window().as_weak();
     let login_application = Arc::clone(&application);
@@ -769,6 +776,7 @@ fn apply_account_state(
                     .map_or("Disabled", provider_label)
                     .into(),
             );
+            main.set_tokenhub_model(preferences.tokenhub_model.into());
             main.set_tokenhub_configured(configured.0);
             main.set_google_configured(configured.1);
             main.set_sync_status(status.into());

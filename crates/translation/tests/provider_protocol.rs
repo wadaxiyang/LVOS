@@ -102,6 +102,38 @@ async fn tokenhub_uses_fixed_official_endpoint_and_translation_schema() {
 }
 
 #[tokio::test]
+async fn tokenhub_sends_a_bounded_user_configured_model_name() {
+    let transport = Arc::new(MockTransport::new([Ok(response(
+        200,
+        r#"{"choices":[{"finish_reason":"stop","message":{"content":"你好"}}]}"#,
+    ))]));
+    let provider = TencentTokenHubProvider::new(
+        transport.clone(),
+        SecretString::from("tokenhub-secret".to_owned()),
+        TimeoutConfig::default(),
+    )
+    .with_model("  organization/custom-translation-v1  ")
+    .unwrap_or_else(|error| unreachable!("model: {error}"));
+    provider
+        .translate(&request())
+        .await
+        .unwrap_or_else(|error| unreachable!("provider: {error}"));
+    let sent = transport.take_request();
+    let payload: serde_json::Value =
+        serde_json::from_slice(&sent.body).unwrap_or_else(|error| unreachable!("payload: {error}"));
+    assert_eq!(payload["model"], "organization/custom-translation-v1");
+    assert!(
+        TencentTokenHubProvider::new(
+            Arc::new(MockTransport::new([])),
+            SecretString::from("tokenhub-secret".to_owned()),
+            TimeoutConfig::default(),
+        )
+        .with_model("invalid model")
+        .is_err()
+    );
+}
+
+#[tokio::test]
 async fn google_basic_v2_uses_nmt_text_request_and_secret_header() {
     let transport = Arc::new(MockTransport::new([Ok(response(
         200,

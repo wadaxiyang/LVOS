@@ -20,7 +20,7 @@ use lvos_storage::{
 use lvos_translation::{
     CredentialReader, GoogleBasicV2Provider, LookupCardErrorKind, ProviderId, ProviderRegistry,
     ReqwestTransport, RouterSettings, TencentTokenHubProvider, TimeoutConfig, TranslationProvider,
-    TranslationRequest, TranslationRouter,
+    TranslationRequest, TranslationRouter, validate_tokenhub_model,
 };
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -42,6 +42,8 @@ const PROVIDER_SCOPE_ORIGIN: &str = "lvos://translation-provider";
 pub struct ProviderPreferences {
     pub primary: String,
     pub fallback: Option<String>,
+    #[serde(default = "default_tokenhub_model")]
+    pub tokenhub_model: String,
 }
 
 impl Default for ProviderPreferences {
@@ -49,6 +51,7 @@ impl Default for ProviderPreferences {
         Self {
             primary: lvos_translation::DEFAULT_PRIMARY_PROVIDER.to_owned(),
             fallback: Some(lvos_translation::DEFAULT_FALLBACK_PROVIDER.to_owned()),
+            tokenhub_model: default_tokenhub_model(),
         }
     }
 }
@@ -188,10 +191,11 @@ impl DesktopApplication {
     /// Returns an error for invalid selections, Credential Store failure, or atomic file failure.
     pub fn save_provider_settings(
         &self,
-        preferences: ProviderPreferences,
+        mut preferences: ProviderPreferences,
         tokenhub_key: &str,
         google_key: &str,
     ) -> Result<(), ApplicationError> {
+        preferences.tokenhub_model = validated_tokenhub_model(&preferences.tokenhub_model)?;
         validate_provider_id(&preferences.primary)?;
         if let Some(fallback) = &preferences.fallback {
             validate_provider_id(fallback)?;
@@ -384,7 +388,11 @@ impl DesktopApplication {
     ///
     /// # Errors
     /// Returns a Provider-selection, credential, transport, or response error.
-    pub async fn test_provider(&self, provider: &str) -> Result<(), ApplicationError> {
+    pub async fn test_provider(
+        &self,
+        provider: &str,
+        tokenhub_model: &str,
+    ) -> Result<(), ApplicationError> {
         validate_provider_id(provider)?;
         let profile = self.profile();
         let profile_scope = profile.profile_id.to_string();
@@ -407,7 +415,9 @@ impl DesktopApplication {
         };
         match provider {
             lvos_translation::DEFAULT_PRIMARY_PROVIDER => {
+                let tokenhub_model = validated_tokenhub_model(tokenhub_model)?;
                 TencentTokenHubProvider::new(transport, reader.tokenhub_api_key()?, timeout)
+                    .with_model(&tokenhub_model)?
                     .translate(&request)
                     .await?;
             }
@@ -733,11 +743,10 @@ impl DesktopApplication {
         );
         let mut registry = ProviderRegistry::default();
         if let Ok(key) = reader.tokenhub_api_key() {
-            registry.register(Arc::new(TencentTokenHubProvider::new(
-                transport.clone(),
-                key,
-                timeout,
-            )));
+            registry.register(Arc::new(
+                TencentTokenHubProvider::new(transport.clone(), key, timeout)
+                    .with_model(&preferences.tokenhub_model)?,
+            ));
         }
         if let Ok(key) = reader.google_api_key() {
             registry.register(Arc::new(GoogleBasicV2Provider::new(
@@ -810,7 +819,8 @@ fn read_provider_preferences(path: &Path) -> Result<ProviderPreferences, Applica
     if !path.exists() {
         return Ok(ProviderPreferences::default());
     }
-    let preferences: ProviderPreferences = serde_json::from_slice(&fs::read(path)?)?;
+    let mut preferences: ProviderPreferences = serde_json::from_slice(&fs::read(path)?)?;
+    preferences.tokenhub_model = validated_tokenhub_model(&preferences.tokenhub_model)?;
     validate_provider_id(&preferences.primary)?;
     if let Some(fallback) = &preferences.fallback {
         validate_provider_id(fallback)?;
@@ -821,6 +831,20 @@ fn read_provider_preferences(path: &Path) -> Result<ProviderPreferences, Applica
         }
     }
     Ok(preferences)
+}
+
+fn default_tokenhub_model() -> String {
+    lvos_translation::DEFAULT_TOKENHUB_MODEL.to_owned()
+}
+
+fn validated_tokenhub_model(model: &str) -> Result<String, ApplicationError> {
+    validate_tokenhub_model(model)
+        .map(str::to_owned)
+        .map_err(|_| {
+            ApplicationError::ProviderSettings(
+                "Tencent TokenHub model must be 1-128 characters without whitespace or control characters",
+            )
+        })
 }
 
 fn write_provider_preferences(

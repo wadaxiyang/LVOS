@@ -18,7 +18,10 @@ pub use http::{
     TimeoutConfig, TransportError,
 };
 pub use registry::{ProviderRegistry, RouterSettings, SettingsError, TranslationRouter};
-pub use tokenhub::{DEFAULT_TOKENHUB_MODEL, TOKENHUB_TRANSLATE_ENDPOINT, TencentTokenHubProvider};
+pub use tokenhub::{
+    DEFAULT_TOKENHUB_MODEL, MAX_TOKENHUB_MODEL_CHARS, TOKENHUB_TRANSLATE_ENDPOINT,
+    TencentTokenHubProvider, validate_tokenhub_model,
+};
 
 pub const DEFAULT_PRIMARY_PROVIDER: &str = "tencent-tokenhub";
 pub const DEFAULT_FALLBACK_PROVIDER: &str = "google-basic-v2";

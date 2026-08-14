@@ -7,6 +7,7 @@
 #![allow(unsafe_code)]
 
 use std::{
+    cell::RefCell,
     mem::size_of,
     sync::{
         Arc, Mutex,
@@ -63,7 +64,8 @@ use windows::{
                 CallNextHookEx, CreateWindowExW, DestroyWindow, DispatchMessageW, GetCursorPos,
                 GetMessageW, HWND_MESSAGE, MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SW_SHOWNORMAL,
                 SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL,
-                WINDOW_EX_STYLE, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDOWN, WS_POPUP,
+                WINDOW_EX_STYLE, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDOWN,
+                WM_XBUTTONDOWN, WS_POPUP,
             },
         },
     },
@@ -473,7 +475,7 @@ struct HookBounds {
 
 impl HookBounds {
     const fn contains(self, x: i32, y: i32) -> bool {
-        x >= self.left && x <= self.right && y >= self.top && y <= self.bottom
+        x >= self.left && x < self.right && y >= self.top && y < self.bottom
     }
 }
 
@@ -483,7 +485,12 @@ struct HookState {
     fired: AtomicBool,
 }
 
-static OUTSIDE_CLICK_STATE: Mutex<Option<HookState>> = Mutex::new(None);
+thread_local! {
+    // WH_MOUSE_LL callbacks execute on the thread that installed the hook. Keeping the callback
+    // state on that same thread prevents an older monitor from clearing a newer monitor's state
+    // while Popup content is replaced (for example, Loading -> Ready).
+    static OUTSIDE_CLICK_STATE: RefCell<Option<HookState>> = const { RefCell::new(None) };
+}
 
 pub struct OutsideClickMonitor {
     thread_id: u32,
@@ -546,25 +553,20 @@ fn run_outside_click_hook(
     dismiss: Arc<dyn Fn() + Send + Sync>,
     ready: &mpsc::SyncSender<Result<u32, PlatformError>>,
 ) {
-    if let Ok(mut state) = OUTSIDE_CLICK_STATE.lock() {
-        *state = Some(HookState {
+    OUTSIDE_CLICK_STATE.with(|state| {
+        state.borrow_mut().replace(HookState {
             bounds,
             dismiss,
             fired: AtomicBool::new(false),
         });
-    } else {
-        let _ = ready.send(Err(PlatformError::IntegrationFailure));
-        return;
-    }
+    });
     // SAFETY: null module selects the current process module; the callback has system ABI.
     let module = unsafe { GetModuleHandleW(PCWSTR::null()) }.ok();
     let hook =
         unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), module.map(Into::into), 0) };
     let Ok(hook) = hook else {
         let _ = ready.send(Err(PlatformError::IntegrationFailure));
-        if let Ok(mut state) = OUTSIDE_CLICK_STATE.lock() {
-            state.take();
-        }
+        OUTSIDE_CLICK_STATE.with(|state| state.borrow_mut().take());
         return;
     };
     // SAFETY: called on the current thread and used only to post WM_QUIT later.
@@ -579,28 +581,31 @@ fn run_outside_click_hook(
         }
     }
     let _ = unsafe { UnhookWindowsHookEx(hook) };
-    if let Ok(mut state) = OUTSIDE_CLICK_STATE.lock() {
-        state.take();
-    }
+    OUTSIDE_CLICK_STATE.with(|state| state.borrow_mut().take());
 }
 
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0
-        && u32::try_from(wparam.0).is_ok_and(|message| {
-            matches!(message, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN)
-        })
-    {
+    if code >= 0 && u32::try_from(wparam.0).is_ok_and(is_mouse_button_down) {
         // SAFETY: Win32 guarantees lparam points to MSLLHOOKSTRUCT for WH_MOUSE_LL callbacks.
         let mouse = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
-        if let Ok(state) = OUTSIDE_CLICK_STATE.lock()
-            && let Some(state) = state.as_ref()
-            && !state.bounds.contains(mouse.pt.x, mouse.pt.y)
-            && !state.fired.swap(true, Ordering::AcqRel)
-        {
-            (state.dismiss)();
-        }
+        OUTSIDE_CLICK_STATE.with(|active| {
+            let state = active.borrow();
+            if let Some(state) = state.as_ref()
+                && !state.bounds.contains(mouse.pt.x, mouse.pt.y)
+                && !state.fired.swap(true, Ordering::AcqRel)
+            {
+                (state.dismiss)();
+            }
+        });
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+const fn is_mouse_button_down(message: u32) -> bool {
+    matches!(
+        message,
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+    )
 }
 
 #[derive(Debug, Default)]
@@ -1328,5 +1333,30 @@ mod tests {
     fn clipboard_restore_requires_the_expected_sequence() {
         assert!(should_restore_clipboard(77, 77));
         assert!(!should_restore_clipboard(78, 77));
+    }
+
+    #[test]
+    fn popup_hook_bounds_use_win32_exclusive_right_and_bottom_edges() {
+        let bounds = HookBounds {
+            left: 10,
+            top: 20,
+            right: 30,
+            bottom: 40,
+        };
+        assert!(bounds.contains(10, 20));
+        assert!(bounds.contains(29, 39));
+        assert!(!bounds.contains(30, 39));
+        assert!(!bounds.contains(29, 40));
+    }
+
+    #[test]
+    fn popup_hook_recognizes_every_supported_button_down() {
+        assert!(is_mouse_button_down(WM_LBUTTONDOWN));
+        assert!(is_mouse_button_down(WM_RBUTTONDOWN));
+        assert!(is_mouse_button_down(WM_MBUTTONDOWN));
+        assert!(is_mouse_button_down(WM_XBUTTONDOWN));
+        assert!(!is_mouse_button_down(
+            windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE
+        ));
     }
 }

@@ -11,6 +11,7 @@ use crate::{
 
 pub(crate) const TOKENHUB_PROVIDER_ID: &str = "tencent-tokenhub";
 pub const DEFAULT_TOKENHUB_MODEL: &str = "hy-mt2-lite";
+pub const MAX_TOKENHUB_MODEL_CHARS: usize = 128;
 pub const TOKENHUB_TRANSLATE_ENDPOINT: &str =
     "https://tokenhub.tencentmaas.com/v1/api/translations";
 
@@ -37,17 +38,32 @@ impl TencentTokenHubProvider {
         }
     }
 
-    /// Selects one of the official `TokenHub` translation model identifiers.
+    /// Selects the user-configured `TokenHub` model identifier sent to the translation endpoint.
     ///
     /// # Errors
-    /// Returns an error when `model` is not an official supported translation model.
+    /// Returns an error when `model` is empty, contains whitespace/control characters, or exceeds
+    /// the bounded settings length.
     pub fn with_model(mut self, model: &str) -> Result<Self, TranslationError> {
-        if !matches!(model, "hy-mt2-lite" | "hy-mt2-plus" | "hy-mt2-pro") {
-            return Err(TranslationError::MissingConfiguration);
-        }
-        model.clone_into(&mut self.model);
+        validate_tokenhub_model(model)?.clone_into(&mut self.model);
         Ok(self)
     }
+}
+
+/// Validates and trims a user-configured `TokenHub` model identifier.
+///
+/// # Errors
+/// Returns a missing-configuration error for values that cannot be sent as a bounded model name.
+pub fn validate_tokenhub_model(model: &str) -> Result<&str, TranslationError> {
+    let model = model.trim();
+    if model.is_empty()
+        || model.chars().count() > MAX_TOKENHUB_MODEL_CHARS
+        || model
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(TranslationError::MissingConfiguration);
+    }
+    Ok(model)
 }
 
 #[async_trait]

@@ -58,7 +58,21 @@ fn assert_rejected_provider_settings_are_atomic(application: &DesktopApplication
             .save_provider_settings(
                 ProviderPreferences {
                     primary: "tencent-tokenhub".to_owned(),
+                    fallback: None,
+                    tokenhub_model: "invalid model".to_owned(),
+                },
+                "must-not-be-partially-stored",
+                "",
+            )
+            .is_err()
+    );
+    assert!(
+        application
+            .save_provider_settings(
+                ProviderPreferences {
+                    primary: "tencent-tokenhub".to_owned(),
                     fallback: Some("google-basic-v2".to_owned()),
+                    tokenhub_model: "hy-mt2-lite".to_owned(),
                 },
                 "must-not-be-partially-stored",
                 "",
@@ -69,6 +83,17 @@ fn assert_rejected_provider_settings_are_atomic(application: &DesktopApplication
         application.provider_configuration().unwrap_or_default(),
         (false, false),
         "a rejected Provider selection must not partially mutate credentials"
+    );
+}
+
+#[test]
+fn legacy_provider_preferences_default_the_new_tokenhub_model() {
+    let preferences: ProviderPreferences =
+        serde_json::from_str(r#"{"primary":"tencent-tokenhub","fallback":"google-basic-v2"}"#)
+            .unwrap_or_else(|error| unreachable!("legacy settings: {error}"));
+    assert_eq!(
+        preferences.tokenhub_model,
+        lvos_translation::DEFAULT_TOKENHUB_MODEL
     );
 }
 
@@ -146,6 +171,7 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
             ProviderPreferences {
                 primary: "tencent-tokenhub".to_owned(),
                 fallback: Some("google-basic-v2".to_owned()),
+                tokenhub_model: "organization/custom-translation-v1".to_owned(),
             },
             "tokenhub-integration-secret",
             "google-integration-secret",
@@ -156,8 +182,12 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
         (true, true)
     );
 
-    for entry in std::fs::read_dir(directory.path())
-        .unwrap_or_else(|error| unreachable!("directory: {error}"))
+    assert_provider_settings_are_secret_free_and_include_model(directory.path());
+}
+
+fn assert_provider_settings_are_secret_free_and_include_model(root: &std::path::Path) {
+    let mut model_persisted = false;
+    for entry in std::fs::read_dir(root).unwrap_or_else(|error| unreachable!("directory: {error}"))
     {
         let path = entry
             .unwrap_or_else(|error| unreachable!("entry: {error}"))
@@ -173,6 +203,13 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
                     .windows(b"integration-secret".len())
                     .any(|window| window == b"integration-secret")
             );
+            model_persisted |= bytes
+                .windows(b"organization/custom-translation-v1".len())
+                .any(|window| window == b"organization/custom-translation-v1");
         }
     }
+    assert!(
+        model_persisted,
+        "the non-secret Profile model setting must persist"
+    );
 }
