@@ -20,6 +20,10 @@ docker compose ps
 curl --fail http://127.0.0.1:7770/api/v1/health
 ```
 
+The health JSON declares `server_api_version`, `server_version`, and
+`minimum_desktop_version`. Desktop validates these fields before login or Session restoration and
+will refuse incompatible Server work while keeping local data available.
+
 The container health check uses the Server's own `healthcheck` command, so the runtime image does not need a shell health utility.
 
 Expose the public hostname only through your HTTPS reverse proxy. The default Compose port binding is loopback-only. If the reverse proxy runs in another container, attach it to an operator-managed Docker network and route to `lvos-server:7770` without publishing the Server directly to the internet.
@@ -61,3 +65,8 @@ The image build uses `Cargo.server.toml`, a deployment-only workspace that conta
 ## Updating
 
 Take a manual backup, pull the new source or release, rebuild, and restart with Compose. Startup applies explicit migrations only after creating a consistent pre-migration backup. A migration failure rolls back the migration and refuses startup.
+
+Before a production update, also run `docker compose config` and confirm the public URL, loopback
+binding, persistent volume, and secret-bearing `.env` are the intended deployment values. After
+restart, check health, log in from one Desktop, and confirm a second Device can catch up before
+removing any independent pre-update backup.

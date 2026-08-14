@@ -16,21 +16,30 @@ VERSION = re.compile(
 )
 CHANNEL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 RELEASE_ROOT = "https://github.com/wadaxiyang/LVOS/releases"
+MAX_ARTIFACT_BYTES = 536_870_912
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def artifact(path: Path, version: str, platform: str, architecture: str) -> dict[str, object]:
     expected = f"LVOS-{version}-{platform}-{architecture}.zip"
     if path.name != expected or not path.is_file():
         raise ValueError(f"expected release artifact {expected}")
-    contents = path.read_bytes()
-    if not contents:
-        raise ValueError(f"release artifact is empty: {path}")
+    size = path.stat().st_size
+    if size <= 0 or size > MAX_ARTIFACT_BYTES:
+        raise ValueError(f"release artifact size is outside the V1 limit: {path}")
     return {
         "platform": platform,
         "architecture": architecture,
         "name": expected,
-        "size_bytes": len(contents),
-        "sha256": hashlib.sha256(contents).hexdigest(),
+        "size_bytes": size,
+        "sha256": file_sha256(path),
         "download_url": f"{RELEASE_ROOT}/download/v{version}/{expected}",
     }
 

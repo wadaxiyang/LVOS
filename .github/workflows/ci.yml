@@ -31,3 +31,4 @@ jobs:
           python3 scripts/check_repository_policy.py
           python3 scripts/check_workspace.py
           python3 scripts/check_stage14_security.py
+          python3 scripts/check_stage15_scope.py

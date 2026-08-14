@@ -8,6 +8,7 @@ python3 -B -m unittest scripts/test_ci_checks.py
 python3 scripts/check_repository_policy.py
 python3 scripts/check_workspace.py
 python3 scripts/check_stage14_security.py
+python3 scripts/check_stage15_scope.py
 ./scripts/check-windows-cross.sh
 
 echo "local pre-commit checks passed"

@@ -1,8 +1,28 @@
-# LVOS unsigned release notes
+# LVOS 0.1.0 unsigned release notes
+
+This is the first LVOS V1 release candidate for Windows 11 x86_64 and macOS 15 arm64.
+
+## Highlights
+
+- Native global selection capture with a compact, non-intrusive Lookup Card.
+- Local-first, deduplicated History, QueryStats, Favorites, search, and clear behavior.
+- User-configured Tencent TokenHub and Google translation Providers with native credential storage.
+- Optional private multi-User Server with persistent login, Device control, offline Outbox,
+  revisioned bidirectional Favorite/QueryStats sync, migration, backup, and recovery.
+- Versioned Portable Data export/import and bounded GitHub Release update discovery.
+
+## Verify the download
 
 LVOS V1 desktop packages are intentionally unsigned. Download artifacts only from the
 [`wadaxiyang/LVOS` GitHub Releases page](https://github.com/wadaxiyang/LVOS/releases), then compare
 the file's SHA-256 with `SHA256SUMS` and `lvos-update-stable.json` before opening it.
+
+Expected assets for version `0.1.0`:
+
+- `LVOS-0.1.0-macos-arm64.zip`
+- `LVOS-0.1.0-windows-x86_64.zip`
+- `lvos-update-stable.json`
+- `SHA256SUMS`
 
 ## macOS 15 arm64
 
@@ -23,3 +43,10 @@ LVOS checks bounded GitHub Release metadata and opens the Release page when a ne
 is available. It never downloads, installs, or replaces the application automatically. Quit the old
 version before manually replacing it; Profile databases and settings remain in the OS application
 data directory rather than inside the application package.
+
+Before upgrading, quit LVOS and make a Portable Data export if desired. Private Server operators
+should also create a consistent Server backup before rebuilding. A fresh install and a manual
+replacement must both be exercised on the target OS before this candidate is tagged as V1.
+
+See the [V1 known limitations](https://github.com/wadaxiyang/LVOS/blob/v0.1.0/KNOWN_LIMITATIONS.md)
+before distribution.

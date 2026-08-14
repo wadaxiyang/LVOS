@@ -9,7 +9,27 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust toolchain
+        run: rustup show
+      - name: Run complete host quality gate
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --all-targets --all-features
+          python3 -B -m unittest scripts/test_ci_checks.py
+          python3 scripts/check_repository_policy.py
+          python3 scripts/check_workspace.py
+          python3 scripts/check_stage14_security.py
+          python3 scripts/check_stage15_scope.py
+      - name: Build strict API documentation
+        run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps
+
   macos:
+    needs: quality
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +47,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: quality
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +95,14 @@ jobs:
             --macos "artifacts/LVOS-${version}-macos-arm64.zip" \
             --windows "artifacts/LVOS-${version}-windows-x86_64.zip" \
             --output artifacts/lvos-update-stable.json
-          (cd artifacts && sha256sum LVOS-*.zip lvos-update-stable.json > SHA256SUMS)
+          python3 scripts/generate_release_checksums.py \
+            --output artifacts/SHA256SUMS \
+            "artifacts/LVOS-${version}-macos-arm64.zip" \
+            "artifacts/LVOS-${version}-windows-x86_64.zip" \
+            artifacts/lvos-update-stable.json
+          python3 scripts/verify_release_candidate.py \
+            --directory artifacts \
+            --version "${version}"
       - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

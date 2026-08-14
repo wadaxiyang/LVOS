@@ -3,13 +3,18 @@
 
 from __future__ import annotations
 
-import unittest
+import json
 from pathlib import Path
+import plistlib
+import struct
 import tempfile
+import unittest
 import zipfile
 
 from scripts.create_release_zip import create_release_zip
-from scripts.generate_update_manifest import build_manifest
+from scripts.generate_update_manifest import MAX_ARTIFACT_BYTES, build_manifest
+from scripts.generate_release_checksums import write_checksums
+from scripts.verify_release_candidate import verify_candidate
 
 from scripts.check_workspace import (
     EXPECTED_PACKAGES,
@@ -73,6 +78,56 @@ class WorkspaceCheckTests(unittest.TestCase):
             self.assertEqual(manifest["manifest_version"], 1)
             self.assertEqual(len(manifest["artifacts"]), 2)
             self.assertEqual(len(manifest["artifacts"][0]["sha256"]), 64)
+            with mac_archive.open("wb") as oversized:
+                oversized.truncate(MAX_ARTIFACT_BYTES + 1)
+            with self.assertRaises(ValueError):
+                build_manifest("0.1.0", "stable", mac_archive, windows_archive)
+
+    def test_release_candidate_verifier_checks_both_native_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_directory:
+            directory = Path(raw_directory)
+            bundle = directory / "bundle" / "LVOS.app"
+            (bundle / "Contents" / "MacOS").mkdir(parents=True)
+            (bundle / "Contents" / "Info.plist").write_bytes(
+                plistlib.dumps(
+                    {
+                        "CFBundleDisplayName": "LVOS",
+                        "CFBundleExecutable": "LVOS",
+                        "CFBundleIdentifier": "site.niuniu770.lvos",
+                        "CFBundleShortVersionString": "0.1.0",
+                        "LSMinimumSystemVersion": "15.0",
+                    }
+                )
+            )
+            (bundle / "Contents" / "MacOS" / "LVOS").write_bytes(
+                b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C)
+            )
+            windows = bytearray(256)
+            windows[:2] = b"MZ"
+            struct.pack_into("<I", windows, 0x3C, 0x80)
+            windows[0x80:0x84] = b"PE\0\0"
+            struct.pack_into("<H", windows, 0x84, 0x8664)
+            struct.pack_into("<H", windows, 0x98, 0x20B)
+            struct.pack_into("<H", windows, 0x98 + 68, 2)
+            executable = directory / "LVOS.exe"
+            executable.write_bytes(windows)
+            mac_archive = directory / "LVOS-0.1.0-macos-arm64.zip"
+            windows_archive = directory / "LVOS-0.1.0-windows-x86_64.zip"
+            create_release_zip(bundle, mac_archive, "LVOS.app")
+            create_release_zip(executable, windows_archive, "LVOS.exe")
+            manifest = build_manifest(
+                "0.1.0", "stable", mac_archive, windows_archive
+            )
+            manifest_path = directory / "lvos-update-stable.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            checksum_path = directory / "SHA256SUMS"
+            write_checksums(
+                [mac_archive, windows_archive, manifest_path], checksum_path
+            )
+            verify_candidate(directory, "0.1.0")
+            checksum_path.write_text("0" * 64 + "  bad.zip\n", encoding="ascii")
+            with self.assertRaises(ValueError):
+                verify_candidate(directory, "0.1.0")
 
 
 if __name__ == "__main__":
