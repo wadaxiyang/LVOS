@@ -1,0 +1,90 @@
+name: Draft unsigned release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust toolchain
+        run: rustup show
+      - name: Verify tag matches workspace version
+        shell: bash
+        run: test "${GITHUB_REF_NAME#v}" = "$(python3 scripts/workspace_version.py)"
+      - name: Build unsigned macOS arm64 package
+        run: ./scripts/package-macos-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lvos-macos-arm64
+          path: target/release-package/LVOS-*-macos-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust toolchain
+        run: rustup show
+      - name: Verify tag matches workspace version
+        shell: pwsh
+        run: |
+          $version = python scripts/workspace_version.py
+          if ($env:GITHUB_REF_NAME.TrimStart('v') -ne $version.Trim()) { exit 1 }
+      - name: Build unsigned Windows x86_64 package
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p lvos
+          $version = (python scripts/workspace_version.py).Trim()
+          python scripts/create_release_zip.py `
+            --source target/release/lvos.exe `
+            --archive-name LVOS.exe `
+            --output "target/release-package/LVOS-$version-windows-x86_64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lvos-windows-x86_64
+          path: target/release-package/LVOS-*-windows-x86_64.zip
+          if-no-files-found: error
+
+  draft-release:
+    needs: [macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lvos-*
+          path: artifacts
+          merge-multiple: true
+      - name: Generate strict update manifest and checksums
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/generate_update_manifest.py \
+            --version "${version}" \
+            --channel stable \
+            --macos "artifacts/LVOS-${version}-macos-arm64.zip" \
+            --windows "artifacts/LVOS-${version}-windows-x86_64.zip" \
+            --output artifacts/lvos-update-stable.json
+          (cd artifacts && sha256sum LVOS-*.zip lvos-update-stable.json > SHA256SUMS)
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            artifacts/LVOS-*.zip \
+            artifacts/lvos-update-stable.json \
+            artifacts/SHA256SUMS \
+            --draft \
+            --verify-tag \
+            --title "LVOS ${GITHUB_REF_NAME}" \
+            --notes-file RELEASE.md

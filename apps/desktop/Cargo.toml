@@ -19,6 +19,7 @@ lvos-sync = { path = "../../crates/sync" }
 lvos-translation = { path = "../../crates/translation" }
 reqwest = { workspace = true, features = ["query", "stream"] }
 rustls.workspace = true
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 slint.workspace = true

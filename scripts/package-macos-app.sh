@@ -6,18 +6,21 @@ if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
     exit 1
 fi
 
-cargo build --release -p lvos
+cargo build --release --locked -p lvos
+
+readonly version="$(python3 scripts/workspace_version.py)"
 
 bundle="target/release/LVOS.app"
 contents="${bundle}/Contents"
 binary="${contents}/MacOS/LVOS"
+archive="target/release-package/LVOS-${version}-macos-arm64.zip"
 
 rm -rf "${bundle}"
 mkdir -p "${contents}/MacOS" "${contents}/Resources"
 cp target/release/lvos "${binary}"
 chmod 755 "${binary}"
 
-cat > "${contents}/Info.plist" <<'PLIST'
+cat > "${contents}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -37,7 +40,7 @@ cat > "${contents}/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>${version}</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -58,3 +61,8 @@ codesign \
     "${bundle}"
 codesign --verify --deep --strict "${bundle}"
 echo "macOS app bundle created: ${bundle}"
+python3 scripts/create_release_zip.py \
+    --source "${bundle}" \
+    --archive-name "LVOS.app" \
+    --output "${archive}"
+echo "unsigned macOS arm64 release archive created: ${archive}"

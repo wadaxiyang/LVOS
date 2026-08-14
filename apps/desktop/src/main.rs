@@ -9,7 +9,12 @@ use std::{cell::RefCell, path::Path, rc::Rc};
 use std::{path::PathBuf, sync::Arc};
 
 use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
-use lvos_core::{PRODUCT_NAME, SOFTWARE_VERSION};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use lvos::{
+    GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, NativeReleasePageOpener,
+    UpdateCheckOutcome, UpdateCoordinator,
+};
+use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use slint::ComponentHandle;
 
@@ -51,6 +56,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let instance = acquire_windows_instance()?;
     let runtime = DesktopRuntime::new(SlintUiDispatcher);
     let ui = UiController::new()?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    install_update_runtime(&ui, &runtime)?;
     #[cfg(target_os = "macos")]
     let native = install_macos_runtime(&ui, &runtime, instance)?;
     #[cfg(target_os = "windows")]
@@ -72,6 +79,118 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(native);
     runtime.shutdown();
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn install_update_runtime(
+    ui: &UiController,
+    runtime: &DesktopRuntime<SlintUiDispatcher>,
+) -> Result<(), Box<dyn Error>> {
+    let channel =
+        std::env::var("LVOS_UPDATE_CHANNEL").unwrap_or_else(|_| DEFAULT_UPDATE_CHANNEL.to_owned());
+    let config = GitHubUpdateConfig::lvos(channel.clone())?;
+    let service = Arc::new(GitHubUpdateService::new(
+        HttpUpdateTransport::new()?,
+        config,
+    ));
+    let coordinator = Arc::new(UpdateCoordinator::new(
+        service,
+        Arc::new(NativeReleasePageOpener),
+        &application_data_root(),
+    ));
+    ui.main_window()
+        .set_update_status(format!("Current {SOFTWARE_VERSION} · {channel} · Not checked").into());
+
+    let manual_main = ui.main_window().as_weak();
+    let manual_coordinator = Arc::clone(&coordinator);
+    let manual_runtime = runtime.runtime_handle();
+    ui.main_window().on_check_update_requested(move || {
+        if let Some(main) = manual_main.upgrade() {
+            main.set_update_status("Checking GitHub Releases…".into());
+        }
+        let main = manual_main.clone();
+        let coordinator = Arc::clone(&manual_coordinator);
+        let channel = channel.clone();
+        manual_runtime.spawn(async move {
+            let result = coordinator.manual_check(current_unix_timestamp()).await;
+            let status = match result {
+                Ok(UpdateCheckOutcome::Available(info)) => {
+                    if let Err(error) = coordinator.open_available(&info) {
+                        tracing::warn!(%error, "failed to open update Release page");
+                        format!(
+                            "Version {} is available, but the Release page could not be opened.",
+                            info.version
+                        )
+                    } else {
+                        format!(
+                            "Version {} is available. GitHub Releases opened for manual download.",
+                            info.version
+                        )
+                    }
+                }
+                Ok(UpdateCheckOutcome::UpToDate(info)) => {
+                    format!(
+                        "Current {} · {} · Up to date",
+                        info.current_version, info.channel
+                    )
+                }
+                Ok(UpdateCheckOutcome::Skipped) => {
+                    format!("Current {SOFTWARE_VERSION} · {channel} · Check skipped")
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "manual update check failed");
+                    "Update check failed. Try again later.".to_owned()
+                }
+            };
+            if let Err(error) = slint::invoke_from_event_loop(move || {
+                if let Some(main) = main.upgrade() {
+                    main.set_update_status(status.into());
+                }
+            }) {
+                tracing::warn!(%error, "failed to dispatch manual update status");
+            }
+        });
+    });
+
+    let startup_main = ui.main_window().as_weak();
+    runtime.spawn(async move {
+        let result = coordinator.startup_check(current_unix_timestamp()).await;
+        let status = match result {
+            Ok(UpdateCheckOutcome::Available(info)) => Some(format!(
+                "Version {} is available. Click Check for Updates to open GitHub Releases.",
+                info.version
+            )),
+            Ok(UpdateCheckOutcome::UpToDate(info)) => Some(format!(
+                "Current {} · {} · Up to date",
+                info.current_version, info.channel
+            )),
+            Ok(UpdateCheckOutcome::Skipped) => None,
+            Err(error) => {
+                tracing::warn!(%error, "startup update check failed");
+                Some("Automatic update check failed. Manual retry is available.".to_owned())
+            }
+        };
+        if let Some(status) = status
+            && let Err(error) = slint::invoke_from_event_loop(move || {
+                if let Some(main) = startup_main.upgrade() {
+                    main.set_update_status(status.into());
+                }
+            })
+        {
+            tracing::warn!(%error, "failed to dispatch startup update status");
+        }
+    });
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn current_unix_timestamp() -> lvos_core::UnixTimestamp {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        });
+    lvos_core::UnixTimestamp::from_seconds(seconds)
 }
 
 #[cfg(target_os = "windows")]

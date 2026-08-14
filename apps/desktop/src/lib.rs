@@ -12,6 +12,7 @@ mod ui;
 mod ui_bridge;
 mod ui_service;
 mod ui_state;
+mod update;
 
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
 pub use device_identity::{DeviceIdentityError, DeviceIdentityManager};
@@ -42,4 +43,8 @@ pub use ui_service::{UiDataError, UiDataService, UiRecordData};
 pub use ui_state::{
     DeviceUiState, LookupCardState, MainSection, PopupFocusState, ProviderSelection,
     ProviderSelectionError, SettingsSection, SyncUiState,
+};
+pub use update::{
+    GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, NativeReleasePageOpener,
+    ReleasePageOpener, UpdateCheckOutcome, UpdateCoordinator, UpdateTarget, UpdateTransport,
 };

@@ -58,15 +58,16 @@ use windows::{
                 GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
                 SendInput, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
+            Shell::ShellExecuteW,
             WindowsAndMessaging::{
                 CallNextHookEx, CreateWindowExW, DestroyWindow, DispatchMessageW, GetCursorPos,
-                GetMessageW, HWND_MESSAGE, MSG, MSLLHOOKSTRUCT, PostThreadMessageW,
+                GetMessageW, HWND_MESSAGE, MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SW_SHOWNORMAL,
                 SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL,
                 WINDOW_EX_STYLE, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDOWN, WS_POPUP,
             },
         },
     },
-    core::PCWSTR,
+    core::{PCWSTR, w},
 };
 
 use crate::{
@@ -80,6 +81,34 @@ const MUTEX_NAME: &str = "Local\\site.niuniu770.lvos.desktop";
 const OPEN_EVENT_NAME: &str = "Local\\site.niuniu770.lvos.desktop.open";
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_VALUE: &str = "LVOS";
+
+/// Opens one validated HTTPS page in the user's default browser.
+///
+/// # Errors
+/// Returns an integration error for a non-HTTPS URL or when `ShellExecute` rejects the request.
+pub fn open_web_url(value: &str) -> Result<(), PlatformError> {
+    if !value.starts_with("https://") {
+        return Err(PlatformError::IntegrationFailure);
+    }
+    let value: Vec<u16> = value.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: every pointer is either null or points to a NUL-terminated immutable UTF-16 buffer
+    // for the duration of this synchronous ShellExecuteW call. No returned handle is owned by LVOS.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            PCWSTR(value.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(PlatformError::IntegrationFailure)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct WindowsCredentialStore;

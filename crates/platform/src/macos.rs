@@ -155,6 +155,23 @@ pub fn open_accessibility_settings() -> Result<(), PlatformError> {
     }
 }
 
+/// Opens one validated HTTPS page in the user's default browser.
+///
+/// # Errors
+/// Returns an integration error for a non-HTTPS URL or if macOS rejects the request.
+pub fn open_web_url(value: &str) -> Result<(), PlatformError> {
+    if !value.starts_with("https://") {
+        return Err(PlatformError::IntegrationFailure);
+    }
+    let value = NSString::from_str(value);
+    let url = NSURL::URLWithString(&value).ok_or(PlatformError::IntegrationFailure)?;
+    if NSWorkspace::sharedWorkspace().openURL(&url) {
+        Ok(())
+    } else {
+        Err(PlatformError::IntegrationFailure)
+    }
+}
+
 /// Returns whether the unsigned app has a user-level `launchd` login item.
 #[must_use]
 pub fn start_at_login_enabled() -> bool {
