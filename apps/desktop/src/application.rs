@@ -18,11 +18,10 @@ use lvos_storage::{
     PortableImportResult, ProfileMetadata,
 };
 use lvos_translation::{
-    CredentialReader, GoogleBasicV2Provider, LookupCardErrorKind, ProviderId, ProviderRegistry,
-    ReqwestTransport, RouterSettings, TencentTokenHubProvider, TimeoutConfig, TranslationProvider,
-    TranslationRequest, TranslationRouter, validate_tokenhub_model,
+    CredentialReader, LookupCardErrorKind, ReqwestTransport, TencentTokenHubProvider,
+    TimeoutConfig, TranslationProvider, TranslationRequest, validate_tokenhub_model,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -37,22 +36,40 @@ const MAX_LOOKUP_BYTES: usize = 2_000;
 const HISTORY_PAGE_LIMIT: u32 = 200;
 const PROVIDER_SCOPE_ORIGIN: &str = "lvos://translation-provider";
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderPreferences {
-    pub primary: String,
-    pub fallback: Option<String>,
-    #[serde(default = "default_tokenhub_model")]
     pub tokenhub_model: String,
 }
 
 impl Default for ProviderPreferences {
     fn default() -> Self {
         Self {
-            primary: lvos_translation::DEFAULT_PRIMARY_PROVIDER.to_owned(),
-            fallback: Some(lvos_translation::DEFAULT_FALLBACK_PROVIDER.to_owned()),
             tokenhub_model: default_tokenhub_model(),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderPreferences {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WirePreferences {
+            #[serde(default = "default_tokenhub_model")]
+            tokenhub_model: String,
+            #[serde(default, rename = "primary")]
+            _legacy_primary: Option<String>,
+            #[serde(default, rename = "fallback")]
+            _legacy_fallback: Option<String>,
+        }
+
+        let wire = WirePreferences::deserialize(deserializer)?;
+        Ok(Self {
+            tokenhub_model: wire.tokenhub_model,
+        })
     }
 }
 
@@ -174,18 +191,15 @@ impl DesktopApplication {
     ///
     /// # Errors
     /// Returns an error if the native Credential Store cannot be queried.
-    pub fn provider_configuration(&self) -> Result<(bool, bool), ApplicationError> {
+    pub fn provider_configuration(&self) -> Result<bool, ApplicationError> {
         let scope = self.provider_scope(CredentialKey::TencentTokenHubApiKey);
-        let tokenhub = self.credentials.contains(&scope)?;
-        let scope = self.provider_scope(CredentialKey::GoogleApiKey);
-        let google = self.credentials.contains(&scope)?;
-        Ok((tokenhub, google))
+        Ok(self.credentials.contains(&scope)?)
     }
 
-    /// Persists non-secret Provider order and optional replacement API keys.
+    /// Persists the non-secret `TokenHub` model and an optional replacement API key.
     ///
-    /// Empty key fields retain existing credentials. Selected Providers must be configured and
-    /// distinct before preferences are committed.
+    /// An empty key field retains the existing credential. `TokenHub` must be configured before the
+    /// preferences are committed.
     ///
     /// # Errors
     /// Returns an error for invalid selections, Credential Store failure, or atomic file failure.
@@ -193,36 +207,18 @@ impl DesktopApplication {
         &self,
         mut preferences: ProviderPreferences,
         tokenhub_key: &str,
-        google_key: &str,
     ) -> Result<(), ApplicationError> {
         preferences.tokenhub_model = validated_tokenhub_model(&preferences.tokenhub_model)?;
-        validate_provider_id(&preferences.primary)?;
-        if let Some(fallback) = &preferences.fallback {
-            validate_provider_id(fallback)?;
-            if fallback == &preferences.primary {
-                return Err(ApplicationError::ProviderSettings(
-                    "Primary and Fallback Providers must be different",
-                ));
-            }
-        }
         let tokenhub_key = tokenhub_key.trim();
-        let google_key = google_key.trim();
-        let (stored_tokenhub, stored_google) = self.provider_configuration()?;
-        ensure_selected_configured(
-            &preferences,
-            stored_tokenhub || !tokenhub_key.is_empty(),
-            stored_google || !google_key.is_empty(),
-        )?;
+        if !self.provider_configuration()? && tokenhub_key.is_empty() {
+            return Err(ApplicationError::ProviderSettings(
+                "Tencent TokenHub API key is not configured",
+            ));
+        }
         if !tokenhub_key.is_empty() {
             self.credentials.set(
                 &self.provider_scope(CredentialKey::TencentTokenHubApiKey),
                 tokenhub_key.as_bytes(),
-            )?;
-        }
-        if !google_key.is_empty() {
-            self.credentials.set(
-                &self.provider_scope(CredentialKey::GoogleApiKey),
-                google_key.as_bytes(),
             )?;
         }
         write_provider_preferences(
@@ -384,16 +380,11 @@ impl DesktopApplication {
         self.data.clear_history().await
     }
 
-    /// Sends one direct request through the selected configured Provider.
+    /// Sends one direct request through the configured Tencent `TokenHub` Provider.
     ///
     /// # Errors
-    /// Returns a Provider-selection, credential, transport, or response error.
-    pub async fn test_provider(
-        &self,
-        provider: &str,
-        tokenhub_model: &str,
-    ) -> Result<(), ApplicationError> {
-        validate_provider_id(provider)?;
+    /// Returns a credential, transport, model, or response error.
+    pub async fn test_provider(&self, tokenhub_model: &str) -> Result<(), ApplicationError> {
         let profile = self.profile();
         let profile_scope = profile.profile_id.to_string();
         let device_scope = profile.device_id.to_string();
@@ -413,25 +404,11 @@ impl DesktopApplication {
             source_language: language("en"),
             target_language: language("zh-CN"),
         };
-        match provider {
-            lvos_translation::DEFAULT_PRIMARY_PROVIDER => {
-                let tokenhub_model = validated_tokenhub_model(tokenhub_model)?;
-                TencentTokenHubProvider::new(transport, reader.tokenhub_api_key()?, timeout)
-                    .with_model(&tokenhub_model)?
-                    .translate(&request)
-                    .await?;
-            }
-            lvos_translation::DEFAULT_FALLBACK_PROVIDER => {
-                GoogleBasicV2Provider::new(transport, reader.google_api_key()?, timeout)
-                    .translate(&request)
-                    .await?;
-            }
-            _ => {
-                return Err(ApplicationError::ProviderSettings(
-                    "unknown translation Provider",
-                ));
-            }
-        }
+        let tokenhub_model = validated_tokenhub_model(tokenhub_model)?;
+        TencentTokenHubProvider::new(transport, reader.tokenhub_api_key()?, timeout)
+            .with_model(&tokenhub_model)?
+            .translate(&request)
+            .await?;
         Ok(())
     }
 
@@ -726,6 +703,8 @@ impl DesktopApplication {
     }
 
     fn rebuild_lookup_service(&self) -> Result<(), ApplicationError> {
+        self.credentials
+            .delete(&self.provider_scope(CredentialKey::RetiredTranslationApiKey))?;
         let preferences = self.provider_preferences();
         let profile = self.profile();
         let user_scope = profile.profile_id.to_string();
@@ -741,30 +720,23 @@ impl DesktopApplication {
             ReqwestTransport::new(timeout)
                 .map_err(|_| ApplicationError::ProviderSettings("HTTP transport unavailable"))?,
         );
-        let mut registry = ProviderRegistry::default();
-        if let Ok(key) = reader.tokenhub_api_key() {
-            registry.register(Arc::new(
-                TencentTokenHubProvider::new(transport.clone(), key, timeout)
-                    .with_model(&preferences.tokenhub_model)?,
-            ));
-        }
-        if let Ok(key) = reader.google_api_key() {
-            registry.register(Arc::new(GoogleBasicV2Provider::new(
-                transport, key, timeout,
-            )));
-        }
-        let settings = RouterSettings {
-            primary: ProviderId::new(preferences.primary),
-            fallback: preferences.fallback.map(ProviderId::new),
-        };
-        let lookup = TranslationRouter::new(&registry, &settings).map_or_else(
+        let lookup = reader.tokenhub_api_key().map_or_else(
             |_| {
-                Arc::new(LookupService::new_without_provider(Arc::clone(
-                    &self.database,
+                Ok::<_, ApplicationError>(Arc::new(LookupService::new_without_provider(
+                    Arc::clone(&self.database),
                 )))
             },
-            |router| Arc::new(LookupService::new(Arc::clone(&self.database), router)),
-        );
+            |key| {
+                let provider: Arc<dyn TranslationProvider> = Arc::new(
+                    TencentTokenHubProvider::new(transport, key, timeout)
+                        .with_model(&preferences.tokenhub_model)?,
+                );
+                Ok(Arc::new(LookupService::new(
+                    Arc::clone(&self.database),
+                    provider,
+                )))
+            },
+        )?;
         *self
             .lookup
             .write()
@@ -821,15 +793,7 @@ fn read_provider_preferences(path: &Path) -> Result<ProviderPreferences, Applica
     }
     let mut preferences: ProviderPreferences = serde_json::from_slice(&fs::read(path)?)?;
     preferences.tokenhub_model = validated_tokenhub_model(&preferences.tokenhub_model)?;
-    validate_provider_id(&preferences.primary)?;
-    if let Some(fallback) = &preferences.fallback {
-        validate_provider_id(fallback)?;
-        if fallback == &preferences.primary {
-            return Err(ApplicationError::ProviderSettings(
-                "Primary and Fallback Providers must be different",
-            ));
-        }
-    }
+    write_provider_preferences(path, &preferences)?;
     Ok(preferences)
 }
 
@@ -854,42 +818,6 @@ fn write_provider_preferences(
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, serde_json::to_vec_pretty(preferences)?)?;
     fs::rename(temporary, path)?;
-    Ok(())
-}
-
-fn validate_provider_id(value: &str) -> Result<(), ApplicationError> {
-    if matches!(
-        value,
-        lvos_translation::DEFAULT_PRIMARY_PROVIDER | lvos_translation::DEFAULT_FALLBACK_PROVIDER
-    ) {
-        Ok(())
-    } else {
-        Err(ApplicationError::ProviderSettings(
-            "unknown translation Provider",
-        ))
-    }
-}
-
-fn ensure_selected_configured(
-    preferences: &ProviderPreferences,
-    tokenhub: bool,
-    google: bool,
-) -> Result<(), ApplicationError> {
-    let configured = |provider: &str| match provider {
-        lvos_translation::DEFAULT_PRIMARY_PROVIDER => tokenhub,
-        lvos_translation::DEFAULT_FALLBACK_PROVIDER => google,
-        _ => false,
-    };
-    if !configured(&preferences.primary)
-        || preferences
-            .fallback
-            .as_deref()
-            .is_some_and(|provider| !configured(provider))
-    {
-        return Err(ApplicationError::ProviderSettings(
-            "selected Provider is not configured",
-        ));
-    }
     Ok(())
 }
 

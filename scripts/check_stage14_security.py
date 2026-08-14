@@ -33,7 +33,7 @@ REQUIRED_CALLBACKS = {
 }
 
 SECRET_NAMES = re.compile(
-    r"\b(password|access_token|refresh_token|api_key|tokenhub_key|google_key)\b",
+    r"\b(password|access_token|refresh_token|api_key|tokenhub_key)\b",
     re.IGNORECASE,
 )
 TRACE_MACRO = re.compile(r"tracing::(?:trace|debug|info|warn|error)!\((.*?)\);", re.DOTALL)

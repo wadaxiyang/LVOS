@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use lvos_core::{LanguageCode, PreparedContent, UnixTimestamp};
 use lvos_storage::{HistoryEntry, QueryStats, StoredContent, TranslationSnapshot};
-use lvos_translation::{TranslationError, TranslationRequest, TranslationRouter};
+use lvos_translation::{TranslationError, TranslationProvider, TranslationRequest};
 
 use crate::{DatabaseWorker, DatabaseWorkerError};
 
@@ -22,15 +22,15 @@ pub struct LookupOutcome {
 #[derive(Debug)]
 pub struct LookupService {
     database: Arc<DatabaseWorker>,
-    router: Option<TranslationRouter>,
+    provider: Option<Arc<dyn TranslationProvider>>,
 }
 
 impl LookupService {
     #[must_use]
-    pub fn new(database: Arc<DatabaseWorker>, router: TranslationRouter) -> Self {
+    pub fn new(database: Arc<DatabaseWorker>, provider: Arc<dyn TranslationProvider>) -> Self {
         Self {
             database,
-            router: Some(router),
+            provider: Some(provider),
         }
     }
 
@@ -39,7 +39,7 @@ impl LookupService {
     pub fn new_without_provider(database: Arc<DatabaseWorker>) -> Self {
         Self {
             database,
-            router: None,
+            provider: None,
         }
     }
 
@@ -80,7 +80,7 @@ impl LookupService {
         }
 
         let translated = self
-            .router
+            .provider
             .as_ref()
             .ok_or(TranslationError::MissingConfiguration)?
             .translate(&TranslationRequest {

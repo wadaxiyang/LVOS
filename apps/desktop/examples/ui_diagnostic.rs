@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "说话人不变表征",
             3,
             false,
-            "Google Basic v2",
+            "TokenHub",
         ),
     ]);
     ui.set_favorites(vec![ui_record(

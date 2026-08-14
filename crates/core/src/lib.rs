@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn identity_constants_match_v1() {
-        assert_eq!(SOFTWARE_VERSION, "0.1.1");
+        assert_eq!(SOFTWARE_VERSION, "0.1.2");
         assert_eq!(API_VERSION, "v1");
         assert_eq!(CONTENT_KEY_VERSION, 1);
         assert_eq!(DEFAULT_SERVER_PORT, 7770);

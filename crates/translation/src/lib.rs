@@ -1,9 +1,7 @@
-//! Translation Provider registry, routing, credentials, and official protocol clients.
+//! Translation Provider boundary, credentials, and the official Tencent `TokenHub` client.
 
 mod credentials;
-mod google;
 mod http;
-mod registry;
 mod tokenhub;
 
 use std::{error::Error, fmt};
@@ -12,19 +10,16 @@ use async_trait::async_trait;
 use lvos_core::LanguageCode;
 
 pub use credentials::{CredentialReader, ProviderCredentialError};
-pub use google::{GOOGLE_TRANSLATE_ENDPOINT, GoogleBasicV2Provider};
 pub use http::{
     HeaderValue, HttpMethod, HttpRequest, HttpResponse, HttpTransport, ReqwestTransport,
     TimeoutConfig, TransportError,
 };
-pub use registry::{ProviderRegistry, RouterSettings, SettingsError, TranslationRouter};
 pub use tokenhub::{
     DEFAULT_TOKENHUB_MODEL, MAX_TOKENHUB_MODEL_CHARS, TOKENHUB_TRANSLATE_ENDPOINT,
     TencentTokenHubProvider, validate_tokenhub_model,
 };
 
-pub const DEFAULT_PRIMARY_PROVIDER: &str = "tencent-tokenhub";
-pub const DEFAULT_FALLBACK_PROVIDER: &str = "google-basic-v2";
+pub const TOKENHUB_PROVIDER_ID: &str = "tencent-tokenhub";
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProviderId(String);
@@ -85,17 +80,6 @@ pub enum TranslationError {
 
 impl TranslationError {
     #[must_use]
-    pub const fn permits_fallback(&self) -> bool {
-        matches!(
-            self,
-            Self::ConnectTimeout
-                | Self::RequestTimeout
-                | Self::RateLimited
-                | Self::ProviderUnavailable
-        )
-    }
-
-    #[must_use]
     pub const fn lookup_card_kind(&self) -> LookupCardErrorKind {
         match self {
             Self::MissingConfiguration => LookupCardErrorKind::ProviderConfigurationRequired,
@@ -135,20 +119,4 @@ pub enum LookupCardErrorKind {
     ProviderUnauthorized,
     TranslationUnavailable,
     UnsupportedInput,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_explicit_transient_errors_fall_back() {
-        assert!(TranslationError::ConnectTimeout.permits_fallback());
-        assert!(TranslationError::RequestTimeout.permits_fallback());
-        assert!(TranslationError::RateLimited.permits_fallback());
-        assert!(TranslationError::ProviderUnavailable.permits_fallback());
-        assert!(!TranslationError::Network.permits_fallback());
-        assert!(!TranslationError::Unauthorized.permits_fallback());
-        assert!(!TranslationError::MissingConfiguration.permits_fallback());
-    }
 }

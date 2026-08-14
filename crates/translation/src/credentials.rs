@@ -27,14 +27,6 @@ impl<'a, S: CredentialStore + ?Sized> CredentialReader<'a, S> {
         }
     }
 
-    /// Reads the user's Google Basic v2 API key from the native credential store.
-    ///
-    /// # Errors
-    /// Returns an error when the credential is missing, malformed, or inaccessible.
-    pub fn google_api_key(&self) -> Result<SecretString, ProviderCredentialError> {
-        self.read(CredentialKey::GoogleApiKey)
-    }
-
     /// Reads the user's Tencent `TokenHub` API key from the native credential store.
     ///
     /// # Errors

@@ -492,14 +492,14 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "lvos-auth"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lvos-core",
 ]
 
 [[package]]
 name = "lvos-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "sha2",
  "unicode-casefold",
@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "argon2",
  "axum",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-storage"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lvos-core",
  "rusqlite",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-sync"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lvos-core",
 ]

@@ -31,7 +31,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.1",
+                    "version": "0.1.2",
                     "license": None,
                     "license_file": license_path,
                 }
@@ -73,11 +73,31 @@ class WorkspaceCheckTests(unittest.TestCase):
         self.assertIn("actions/download-artifact@v8", release)
 
     def test_release_tag_must_match_workspace_version(self) -> None:
-        check_release_tag("v0.1.1", "0.1.1")
+        check_release_tag("v0.1.2", "0.1.2")
         with self.assertRaisesRegex(ValueError, "does not match"):
-            check_release_tag("v0.1.2", "0.1.1")
+            check_release_tag("v0.1.3", "0.1.2")
         with self.assertRaisesRegex(ValueError, "plain v<SemVer>"):
-            check_release_tag("0.1.1", "0.1.1")
+            check_release_tag("0.1.2", "0.1.2")
+
+    def test_translation_surface_is_tokenhub_only(self) -> None:
+        root = Path(__file__).parent.parent
+        self.assertFalse((root / "crates/translation/src/google.rs").exists())
+        self.assertFalse((root / "crates/translation/src/registry.rs").exists())
+        sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for base in (root / "apps", root / "crates")
+            for path in base.rglob("*")
+            if path.suffix in {".rs", ".slint"}
+        )
+        for removed_surface in (
+            "GoogleBasicV2Provider",
+            "GoogleApiKey",
+            "DEFAULT_FALLBACK_PROVIDER",
+            "permits_fallback",
+            "fallback-provider",
+            "google-configured",
+        ):
+            self.assertNotIn(removed_surface, sources)
 
     def test_release_zip_and_manifest_are_deterministic_and_hashed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:

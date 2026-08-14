@@ -5,11 +5,11 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    HeaderValue, HttpMethod, HttpRequest, HttpTransport, ProviderId, TimeoutConfig,
-    TranslationError, TranslationProvider, TranslationRequest, TranslationResult, TransportError,
+    HeaderValue, HttpMethod, HttpRequest, HttpTransport, ProviderId, TOKENHUB_PROVIDER_ID,
+    TimeoutConfig, TranslationError, TranslationProvider, TranslationRequest, TranslationResult,
+    TransportError,
 };
 
-pub(crate) const TOKENHUB_PROVIDER_ID: &str = "tencent-tokenhub";
 pub const DEFAULT_TOKENHUB_MODEL: &str = "hy-mt2-lite";
 pub const MAX_TOKENHUB_MODEL_CHARS: usize = 128;
 pub const TOKENHUB_TRANSLATE_ENDPOINT: &str =

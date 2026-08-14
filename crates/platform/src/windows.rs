@@ -167,7 +167,7 @@ fn credential_account(scope: &CredentialScope) -> String {
         scope.user_id,
         scope.device_id,
         match scope.key {
-            CredentialKey::GoogleApiKey => "google-api-key",
+            CredentialKey::RetiredTranslationApiKey => "google-api-key",
             CredentialKey::TencentTokenHubApiKey => "tokenhub-api-key",
             CredentialKey::ServerRefreshToken => "server-refresh-token",
         }

@@ -6,7 +6,7 @@ This is a stable LVOS V1 release for Windows 11 x86_64 and macOS 15 arm64.
 
 - Native global selection capture with a compact, non-intrusive Lookup Card.
 - Local-first, deduplicated History, QueryStats, Favorites, search, and clear behavior.
-- User-configured Tencent TokenHub and Google translation Providers with native credential storage.
+- User-configured Tencent TokenHub translation with native credential storage.
 - Optional private multi-User Server with persistent login, Device control, offline Outbox,
   revisioned bidirectional Favorite/QueryStats sync, migration, backup, and recovery.
 - Versioned Portable Data export/import and bounded GitHub Release update discovery.

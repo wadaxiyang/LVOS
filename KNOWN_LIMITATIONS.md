@@ -8,7 +8,7 @@
 - Windows portable notifications may use the system notifier fallback because V1 does not install
   a Start Menu shortcut carrying a branded AppUserModelID.
 - Provider API availability, model availability, pricing, quotas, and language support are owned by
-  Tencent and Google and can change. Users supply and pay for their own API keys.
+  Tencent TokenHub and can change. Users supply and pay for their own API keys.
 - The Server is privately deployed through Docker Compose and has no registration page, public Web
   UI, bundled TLS, or bundled reverse proxy. Operators own HTTPS and network exposure.
 - Updates are manual. LVOS opens the official GitHub Release page but never downloads, installs, or

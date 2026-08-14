@@ -7,11 +7,9 @@ use async_trait::async_trait;
 use lvos_auth::{AuthError, CredentialKey, CredentialScope, CredentialStore};
 use lvos_core::LanguageCode;
 use lvos_translation::{
-    CredentialReader, DEFAULT_TOKENHUB_MODEL, GOOGLE_TRANSLATE_ENDPOINT, GoogleBasicV2Provider,
-    HeaderValue, HttpRequest, HttpResponse, HttpTransport, ProviderCredentialError, ProviderId,
-    ProviderRegistry, RouterSettings, SettingsError, TOKENHUB_TRANSLATE_ENDPOINT,
-    TencentTokenHubProvider, TimeoutConfig, TranslationError, TranslationProvider,
-    TranslationRequest, TranslationResult, TranslationRouter, TransportError,
+    CredentialReader, DEFAULT_TOKENHUB_MODEL, HeaderValue, HttpRequest, HttpResponse,
+    HttpTransport, TOKENHUB_TRANSLATE_ENDPOINT, TencentTokenHubProvider, TimeoutConfig,
+    TranslationError, TranslationProvider, TranslationRequest, TransportError,
 };
 use secrecy::SecretString;
 
@@ -134,39 +132,7 @@ async fn tokenhub_sends_a_bounded_user_configured_model_name() {
 }
 
 #[tokio::test]
-async fn google_basic_v2_uses_nmt_text_request_and_secret_header() {
-    let transport = Arc::new(MockTransport::new([Ok(response(
-        200,
-        r#"{"data":{"translations":[{"translatedText":"你好"}]}}"#,
-    ))]));
-    let provider = GoogleBasicV2Provider::new(
-        transport.clone(),
-        SecretString::from("google-secret".to_owned()),
-        TimeoutConfig::default(),
-    );
-    assert_eq!(
-        provider
-            .translate(&request())
-            .await
-            .unwrap_or_else(|error| unreachable!("provider: {error}"))
-            .text,
-        "你好"
-    );
-    let sent = transport.take_request();
-    assert_eq!(sent.url, GOOGLE_TRANSLATE_ENDPOINT);
-    let payload: serde_json::Value =
-        serde_json::from_slice(&sent.body).unwrap_or_else(|error| unreachable!("payload: {error}"));
-    assert_eq!(payload["q"], "hello");
-    assert_eq!(payload["format"], "text");
-    assert_eq!(payload["model"], "nmt");
-    assert!(sent.headers.iter().any(|(name, value)| {
-        name == "x-goog-api-key" && matches!(value, HeaderValue::Secret(_))
-    }));
-    assert!(!format!("{sent:?}").contains("google-secret"));
-}
-
-#[tokio::test]
-async fn provider_errors_preserve_strict_fallback_categories() {
+async fn tokenhub_errors_preserve_typed_categories() {
     for (status, expected) in [
         (401, TranslationError::Unauthorized),
         (429, TranslationError::RateLimited),
@@ -177,113 +143,13 @@ async fn provider_errors_preserve_strict_fallback_categories() {
             status,
             r#"{"error":{"message":"failure"}}"#,
         ))]));
-        let provider = GoogleBasicV2Provider::new(
+        let provider = TencentTokenHubProvider::new(
             transport,
             SecretString::from("key".to_owned()),
             TimeoutConfig::default(),
         );
         assert_eq!(provider.translate(&request()).await, Err(expected));
     }
-}
-
-#[derive(Debug)]
-struct StubProvider {
-    id: ProviderId,
-    answers: Mutex<VecDeque<Result<&'static str, TranslationError>>>,
-}
-
-#[async_trait]
-impl TranslationProvider for StubProvider {
-    fn id(&self) -> ProviderId {
-        self.id.clone()
-    }
-
-    async fn translate(
-        &self,
-        _request: &TranslationRequest,
-    ) -> Result<TranslationResult, TranslationError> {
-        self.answers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .pop_front()
-            .unwrap_or(Err(TranslationError::InvalidResponse))
-            .map(|text| TranslationResult {
-                text: text.to_owned(),
-                provider: self.id.clone(),
-            })
-    }
-}
-
-fn stub(
-    id: &str,
-    answers: impl IntoIterator<Item = Result<&'static str, TranslationError>>,
-) -> Arc<StubProvider> {
-    Arc::new(StubProvider {
-        id: ProviderId::new(id),
-        answers: Mutex::new(answers.into_iter().collect()),
-    })
-}
-
-#[tokio::test]
-async fn router_falls_back_only_for_explicit_transient_failure() {
-    let primary = stub("primary", [Err(TranslationError::RequestTimeout)]);
-    let fallback = stub("fallback", [Ok("fallback result")]);
-    let mut registry = ProviderRegistry::default();
-    registry.register(primary);
-    registry.register(fallback);
-    let router = TranslationRouter::new(
-        &registry,
-        &RouterSettings {
-            primary: ProviderId::new("primary"),
-            fallback: Some(ProviderId::new("fallback")),
-        },
-    )
-    .unwrap_or_else(|error| unreachable!("settings: {error}"));
-    assert_eq!(
-        router
-            .translate(&request())
-            .await
-            .unwrap_or_else(|error| unreachable!("router: {error}"))
-            .text,
-        "fallback result"
-    );
-
-    let primary = stub("primary", [Err(TranslationError::Unauthorized)]);
-    let fallback = stub("fallback", [Ok("must not run")]);
-    let mut registry = ProviderRegistry::default();
-    registry.register(primary);
-    registry.register(fallback.clone());
-    let router = TranslationRouter::new(
-        &registry,
-        &RouterSettings {
-            primary: ProviderId::new("primary"),
-            fallback: Some(ProviderId::new("fallback")),
-        },
-    )
-    .unwrap_or_else(|error| unreachable!("settings: {error}"));
-    assert_eq!(
-        router.translate(&request()).await,
-        Err(TranslationError::Unauthorized)
-    );
-    assert_eq!(
-        fallback
-            .answers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len(),
-        1
-    );
-}
-
-#[test]
-fn unconfigured_selected_provider_blocks_settings() {
-    let registry = ProviderRegistry::default();
-    assert_eq!(
-        registry.validate(&RouterSettings::default()),
-        Err(SettingsError::ProviderNotConfigured(ProviderId::new(
-            "tencent-tokenhub"
-        )))
-    );
 }
 
 #[derive(Debug, Default)]
@@ -340,8 +206,4 @@ fn credential_reader_uses_profile_scoped_tokenhub_key() {
         .unwrap_or_else(|error| unreachable!("fixture: {error}"));
     let reader = CredentialReader::new(&store, "https://server", "user", "device");
     assert!(reader.tokenhub_api_key().is_ok());
-    assert!(matches!(
-        reader.google_api_key(),
-        Err(ProviderCredentialError::Missing)
-    ));
 }

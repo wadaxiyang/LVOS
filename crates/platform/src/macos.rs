@@ -98,7 +98,7 @@ fn credential_account(scope: &CredentialScope) -> String {
 
 const fn credential_key_name(key: CredentialKey) -> &'static str {
     match key {
-        CredentialKey::GoogleApiKey => "google-api-key",
+        CredentialKey::RetiredTranslationApiKey => "google-api-key",
         CredentialKey::TencentTokenHubApiKey => "tokenhub-api-key",
         CredentialKey::ServerRefreshToken => "server-refresh-token",
     }

@@ -1,5 +1,5 @@
 use lvos_core::ContentKey;
-use lvos_translation::{LookupCardErrorKind, ProviderId};
+use lvos_translation::LookupCardErrorKind;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MainSection {
@@ -99,41 +99,6 @@ impl LookupCardState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProviderSelection {
-    pub primary: ProviderId,
-    pub fallback: Option<ProviderId>,
-    pub configured: Vec<ProviderId>,
-}
-
-impl ProviderSelection {
-    /// Validates the values before allowing Settings to persist them.
-    ///
-    /// # Errors
-    /// Returns the first missing or duplicate Provider selection error.
-    pub fn validate(&self) -> Result<(), ProviderSelectionError> {
-        if !self.configured.contains(&self.primary) {
-            return Err(ProviderSelectionError::PrimaryNotConfigured);
-        }
-        if let Some(fallback) = &self.fallback {
-            if fallback == &self.primary {
-                return Err(ProviderSelectionError::DuplicateProvider);
-            }
-            if !self.configured.contains(fallback) {
-                return Err(ProviderSelectionError::FallbackNotConfigured);
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderSelectionError {
-    PrimaryNotConfigured,
-    FallbackNotConfigured,
-    DuplicateProvider,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SyncUiState {
     LoginRequired,
     Idle,
@@ -193,29 +158,5 @@ mod tests {
             kind: LookupCardErrorKind::TranslationUnavailable,
         }));
         assert_eq!(state.generation(), Some(2));
-    }
-
-    #[test]
-    fn provider_settings_require_distinct_configured_selections() {
-        let tokenhub = ProviderId::new("tencent-tokenhub");
-        let google = ProviderId::new("google-basic-v2");
-        assert!(
-            ProviderSelection {
-                primary: tokenhub.clone(),
-                fallback: Some(google.clone()),
-                configured: vec![tokenhub.clone(), google],
-            }
-            .validate()
-            .is_ok()
-        );
-        assert_eq!(
-            ProviderSelection {
-                primary: tokenhub.clone(),
-                fallback: Some(tokenhub.clone()),
-                configured: vec![tokenhub],
-            }
-            .validate(),
-            Err(ProviderSelectionError::DuplicateProvider)
-        );
     }
 }

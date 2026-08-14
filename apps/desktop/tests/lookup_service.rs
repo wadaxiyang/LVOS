@@ -8,8 +8,7 @@ use lvos::{DatabaseWorker, LookupMode, LookupService};
 use lvos_core::{LanguageCode, UnixTimestamp, ValidationPolicy, prepare_content};
 use lvos_storage::ProfileMetadata;
 use lvos_translation::{
-    ProviderId, ProviderRegistry, RouterSettings, TranslationError, TranslationProvider,
-    TranslationRequest, TranslationResult, TranslationRouter,
+    ProviderId, TranslationError, TranslationProvider, TranslationRequest, TranslationResult,
 };
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -83,17 +82,7 @@ async fn cache_and_refresh_preserve_query_and_favorite_invariants() {
     let provider = Arc::new(CountingProvider {
         calls: Mutex::new(0),
     });
-    let mut registry = ProviderRegistry::default();
-    registry.register(provider.clone());
-    let router = TranslationRouter::new(
-        &registry,
-        &RouterSettings {
-            primary: ProviderId::new("counting"),
-            fallback: None,
-        },
-    )
-    .unwrap_or_else(|error| unreachable!("router: {error}"));
-    let service = LookupService::new(worker.clone(), router);
+    let service = LookupService::new(worker.clone(), provider.clone());
 
     let first = service
         .lookup(

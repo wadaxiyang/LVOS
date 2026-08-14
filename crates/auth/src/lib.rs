@@ -7,7 +7,8 @@ pub const DEFAULT_REFRESH_SESSION_IDLE_TTL_DAYS: u64 = 90;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CredentialKey {
-    GoogleApiKey,
+    /// One-release cleanup key for credentials written by the removed secondary Provider.
+    RetiredTranslationApiKey,
     TencentTokenHubApiKey,
     ServerRefreshToken,
 }

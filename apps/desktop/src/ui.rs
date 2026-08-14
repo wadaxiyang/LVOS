@@ -3,12 +3,10 @@ use std::cell::RefCell;
 use std::{cell::Cell, error::Error, fmt, rc::Rc};
 
 use lvos_core::ContentKey;
-use lvos_translation::{LookupCardErrorKind, ProviderId};
+use lvos_translation::LookupCardErrorKind;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use crate::{
-    LookupCardState, PopupFocusState, ProviderSelection, ProviderSelectionError, UiRecordData,
-};
+use crate::{LookupCardState, PopupFocusState, UiRecordData};
 
 #[allow(
     missing_debug_implementations,
@@ -190,26 +188,17 @@ impl UiController {
         });
         let settings = controller.main_window.as_weak();
         controller.main_window.on_validate_provider_settings(
-            move |primary, fallback, tokenhub_model, tokenhub_key, google_key| {
+            move |tokenhub_model, tokenhub_key| {
                 if lvos_translation::validate_tokenhub_model(&tokenhub_model).is_err() {
                     return "Tencent TokenHub model must be 1-128 characters without whitespace or control characters".into();
                 }
                 let Some(settings) = settings.upgrade() else {
                     return "Settings window is unavailable".into();
                 };
-                let mut configured = Vec::new();
-                if settings.get_tokenhub_configured() || !tokenhub_key.trim().is_empty() {
-                    configured.push(ProviderId::new("tencent-tokenhub"));
+                if !settings.get_tokenhub_configured() && tokenhub_key.trim().is_empty() {
+                    return "Configure Tencent TokenHub before saving.".into();
                 }
-                if settings.get_google_configured() || !google_key.trim().is_empty() {
-                    configured.push(ProviderId::new("google-basic-v2"));
-                }
-                let selection = ProviderSelection {
-                    primary: provider_id(&primary),
-                    fallback: (fallback.as_str() != "Disabled").then(|| provider_id(&fallback)),
-                    configured,
-                };
-                provider_validation_copy(selection.validate()).into()
+                "".into()
             },
         );
         Ok(controller)
@@ -555,29 +544,6 @@ fn ui_record_from_data(record: &UiRecordData) -> UiRecord {
         record.favorite,
         &record.metadata,
     )
-}
-
-fn provider_id(label: &str) -> ProviderId {
-    match label {
-        "Tencent TokenHub" => ProviderId::new("tencent-tokenhub"),
-        "Google Basic v2" => ProviderId::new("google-basic-v2"),
-        other => ProviderId::new(other),
-    }
-}
-
-fn provider_validation_copy(result: Result<(), ProviderSelectionError>) -> &'static str {
-    match result {
-        Ok(()) => "",
-        Err(ProviderSelectionError::PrimaryNotConfigured) => {
-            "Configure the Primary Provider before saving."
-        }
-        Err(ProviderSelectionError::FallbackNotConfigured) => {
-            "Configure the Fallback Provider before saving."
-        }
-        Err(ProviderSelectionError::DuplicateProvider) => {
-            "Primary and Fallback Providers must be different."
-        }
-    }
 }
 
 fn saturating_i32(value: u64) -> i32 {

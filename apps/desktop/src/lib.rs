@@ -45,8 +45,7 @@ pub use ui::{show_captured_provider_error, show_lookup_state};
 pub use ui_bridge::{SlintUiDispatcher, UiDispatchError, UiDispatcher};
 pub use ui_service::{UiDataError, UiDataService, UiRecordData};
 pub use ui_state::{
-    DeviceUiState, LookupCardState, MainSection, PopupFocusState, ProviderSelection,
-    ProviderSelectionError, SettingsSection, SyncUiState,
+    DeviceUiState, LookupCardState, MainSection, PopupFocusState, SettingsSection, SyncUiState,
 };
 pub use update::{
     GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, NativeReleasePageOpener,

@@ -5,7 +5,7 @@ use std::{
 };
 
 use lvos::{DesktopApplication, LookupCardState, LookupMode, ProviderPreferences};
-use lvos_auth::{AuthError, CredentialScope, CredentialStore};
+use lvos_auth::{AuthError, CredentialKey, CredentialScope, CredentialStore};
 use lvos_core::{LanguageCode, UnixTimestamp, ValidationPolicy, prepare_content};
 use lvos_storage::{HistoryEntry, Platform, StoredContent, TranslationSnapshot};
 use tempfile::tempdir;
@@ -57,43 +57,31 @@ fn assert_rejected_provider_settings_are_atomic(application: &DesktopApplication
         application
             .save_provider_settings(
                 ProviderPreferences {
-                    primary: "tencent-tokenhub".to_owned(),
-                    fallback: None,
                     tokenhub_model: "invalid model".to_owned(),
                 },
                 "must-not-be-partially-stored",
-                "",
             )
             .is_err()
     );
     assert!(
-        application
-            .save_provider_settings(
-                ProviderPreferences {
-                    primary: "tencent-tokenhub".to_owned(),
-                    fallback: Some("google-basic-v2".to_owned()),
-                    tokenhub_model: "hy-mt2-lite".to_owned(),
-                },
-                "must-not-be-partially-stored",
-                "",
-            )
-            .is_err()
-    );
-    assert_eq!(
-        application.provider_configuration().unwrap_or_default(),
-        (false, false),
-        "a rejected Provider selection must not partially mutate credentials"
+        !application.provider_configuration().unwrap_or_default(),
+        "rejected TokenHub settings must not partially mutate credentials"
     );
 }
 
 #[test]
 fn legacy_provider_preferences_default_the_new_tokenhub_model() {
     let preferences: ProviderPreferences =
-        serde_json::from_str(r#"{"primary":"tencent-tokenhub","fallback":"google-basic-v2"}"#)
+        serde_json::from_str(r#"{"primary":"retired-provider","fallback":null}"#)
             .unwrap_or_else(|error| unreachable!("legacy settings: {error}"));
     assert_eq!(
         preferences.tokenhub_model,
         lvos_translation::DEFAULT_TOKENHUB_MODEL
+    );
+    assert_eq!(
+        serde_json::to_value(preferences)
+            .unwrap_or_else(|error| unreachable!("normalized settings: {error}")),
+        serde_json::json!({"tokenhub_model": "hy-mt2-lite"})
     );
 }
 
@@ -101,7 +89,7 @@ fn legacy_provider_preferences_default_the_new_tokenhub_model() {
 async fn production_composition_keeps_cache_available_without_provider_and_secrets_out_of_files() {
     let directory = tempdir().unwrap_or_else(|error| unreachable!("fixture: {error}"));
     let credentials = Arc::new(MemoryCredentials::default());
-    let store: Arc<dyn CredentialStore> = credentials;
+    let store: Arc<dyn CredentialStore> = credentials.clone();
     let application = DesktopApplication::open(
         directory.path().to_path_buf(),
         Platform::Macos,
@@ -110,10 +98,7 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
     )
     .await
     .unwrap_or_else(|error| unreachable!("application: {error}"));
-    assert_eq!(
-        application.provider_configuration().unwrap_or_default(),
-        (false, false)
-    );
+    assert!(!application.provider_configuration().unwrap_or_default());
 
     let prepared = prepare_content(
         "cached integration",
@@ -166,20 +151,30 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
 
     assert_rejected_provider_settings_are_atomic(&application);
 
+    let profile = application.profile();
+    let retired_scope = CredentialScope {
+        server_origin: "lvos://translation-provider".to_owned(),
+        user_id: profile.profile_id.to_string(),
+        device_id: profile.device_id.to_string(),
+        key: CredentialKey::RetiredTranslationApiKey,
+    };
+    credentials
+        .set(&retired_scope, b"retired-secret")
+        .unwrap_or_else(|error| unreachable!("retired fixture: {error}"));
+
     application
         .save_provider_settings(
             ProviderPreferences {
-                primary: "tencent-tokenhub".to_owned(),
-                fallback: Some("google-basic-v2".to_owned()),
                 tokenhub_model: "organization/custom-translation-v1".to_owned(),
             },
             "tokenhub-integration-secret",
-            "google-integration-secret",
         )
         .unwrap_or_else(|error| unreachable!("settings: {error}"));
-    assert_eq!(
-        application.provider_configuration().unwrap_or_default(),
-        (true, true)
+    assert!(application.provider_configuration().unwrap_or_default());
+    assert!(
+        !credentials
+            .contains(&retired_scope)
+            .unwrap_or_else(|error| unreachable!("retired cleanup: {error}"))
     );
 
     assert_provider_settings_are_secret_free_and_include_model(directory.path());

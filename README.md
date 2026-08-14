@@ -9,8 +9,8 @@ History and optional synchronized Favorites.
 
 - Windows 11 x86_64: default shortcut `Alt+D`.
 - macOS 15 arm64: default shortcut `⌥D` and Accessibility permission for selection capture.
-- Tencent TokenHub `hy-mt2-lite` is the default Primary Provider; Google Cloud Translation Basic
-  v2 is the default Fallback. Both use the user's own API key stored in the OS Credential Store.
+- Tencent TokenHub is the sole V1 translation Provider. Its model defaults to `hy-mt2-lite`, and
+  the user's API key is stored in the OS Credential Store.
 - History stays local. Only content that enters the Favorite synchronization domain and its
   Device-scoped QueryStats can be uploaded to the user's private Server.
 - Each account has an isolated local Profile database. The application remains useful for cached
@@ -24,7 +24,7 @@ the target-specific instructions in [RELEASE.md](RELEASE.md) without disabling O
 features globally.
 
 The Desktop has no first-run Provider wizard. Open **Settings → Translation**, enter at least the
-selected Primary Provider API key, and save. The private Server is optional for local lookup and is
+TokenHub API key, and save. The private Server is optional for local lookup and is
 required only for account/device synchronization.
 
 ## Privacy and security boundary

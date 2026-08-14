@@ -268,8 +268,6 @@ export component MainWindow inherits Window {
     in property <[UiRecord]> history-records;
     in property <[UiRecord]> favorite-records;
     in property <[DeviceRecord]> devices;
-    in property <string> primary-provider: "Tencent TokenHub";
-    in property <string> fallback-provider: "Google Basic v2";
     in-out property <string> tokenhub-model: "hy-mt2-lite";
     in property <string> server-url: "https://lvos.niuniu770.site";
     in property <string> username;
@@ -278,7 +276,6 @@ export component MainWindow inherits Window {
     in property <string> update-status: "No update check performed";
     in-out property <string> settings-error;
     in property <bool> tokenhub-configured;
-    in property <bool> google-configured;
     in-out property <string> global-hotkey: "⌥D";
     in-out property <bool> start-at-login;
     in-out property <bool> launch-minimized;
@@ -287,9 +284,9 @@ export component MainWindow inherits Window {
     callback favorites-search(string);
     callback favorite-toggled(string, bool);
     callback clear-history-requested;
-    callback validate-provider-settings(string, string, string, string, string) -> string;
-    callback persist-provider-settings(string, string, string, string, string);
-    callback test-provider(string, string);
+    callback validate-provider-settings(string, string) -> string;
+    callback persist-provider-settings(string, string);
+    callback test-provider(string);
     callback login-requested(string, string, string);
     callback logout-requested;
     callback manual-sync-requested;
@@ -422,29 +419,23 @@ export component MainWindow inherits Window {
 
                         if root.settings-page == 1: VerticalLayout {
                             spacing: 18px;
-                            SectionHeader { title: "Translation"; subtitle: "Provider order and user-owned credentials."; }
+                            SectionHeader { title: "Translation"; subtitle: "Tencent TokenHub model and user-owned credential."; }
                             SettingsCard {
-                                height: 410px;
+                                height: 300px;
                                 VerticalLayout { padding: 18px; spacing: 11px;
-                                    Text { text: "Primary Provider"; font-weight: 600; }
-                                    primary := ComboBox { model: ["Tencent TokenHub", "Google Basic v2"]; current-value: root.primary-provider; }
-                                    Text { text: "Fallback Provider"; font-weight: 600; }
-                                    fallback := ComboBox { model: ["Google Basic v2", "Tencent TokenHub", "Disabled"]; current-value: root.fallback-provider; }
+                                    Text { text: "Provider: Tencent TokenHub"; font-weight: 600; }
                                     Text { text: "Tencent TokenHub Model"; font-weight: 600; }
                                     tokenhub-model := LineEdit { text <=> root.tokenhub-model; placeholder-text: "hy-mt2-lite"; }
                                     Text { text: "Tencent TokenHub API Key"; font-weight: 600; }
                                     tokenhub-key := LineEdit { placeholder-text: "Stored in OS Credential Store"; input-type: InputType.password; }
-                                    Text { text: "Google Cloud API Key"; font-weight: 600; }
-                                    google-key := LineEdit { placeholder-text: "Stored in OS Credential Store"; input-type: InputType.password; }
                                     if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
                                     HorizontalLayout { alignment: end; spacing: 8px;
-                                        Button { text: "Test Primary"; clicked => { root.test-provider(primary.current-value, tokenhub-model.text); } }
+                                        Button { text: "Test TokenHub"; clicked => { root.test-provider(tokenhub-model.text); } }
                                         Button { text: "Save"; clicked => {
-                                            root.settings-error = root.validate-provider-settings(primary.current-value, fallback.current-value, tokenhub-model.text, tokenhub-key.text, google-key.text);
+                                            root.settings-error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
                                             if (root.settings-error == "") {
-                                                root.persist-provider-settings(primary.current-value, fallback.current-value, tokenhub-model.text, tokenhub-key.text, google-key.text);
+                                                root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text);
                                                 tokenhub-key.text = "";
-                                                google-key.text = "";
                                             }
                                         } }
                                     }
