@@ -12,6 +12,7 @@ import unittest
 import zipfile
 
 from scripts.create_release_zip import create_release_zip
+from scripts.check_release_tag import check_release_tag
 from scripts.generate_update_manifest import MAX_ARTIFACT_BYTES, build_manifest
 from scripts.generate_release_checksums import write_checksums
 from scripts.verify_release_candidate import verify_candidate
@@ -30,7 +31,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.0",
+                    "version": "0.1.1",
                     "license": None,
                     "license_file": license_path,
                 }
@@ -66,6 +67,17 @@ class WorkspaceCheckTests(unittest.TestCase):
         self.assertNotIn("--draft", release)
         self.assertIn("--latest", release)
         self.assertIn("branches:", continuous)
+        self.assertNotIn("actions/checkout@v4", release + continuous)
+        self.assertIn("actions/checkout@v7", release + continuous)
+        self.assertIn("actions/upload-artifact@v7", release)
+        self.assertIn("actions/download-artifact@v8", release)
+
+    def test_release_tag_must_match_workspace_version(self) -> None:
+        check_release_tag("v0.1.1", "0.1.1")
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            check_release_tag("v0.1.2", "0.1.1")
+        with self.assertRaisesRegex(ValueError, "plain v<SemVer>"):
+            check_release_tag("0.1.1", "0.1.1")
 
     def test_release_zip_and_manifest_are_deterministic_and_hashed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:

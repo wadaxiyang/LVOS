@@ -68,7 +68,7 @@ def check_packages(metadata: dict[str, object]) -> None:
         )
 
     for package in packages:
-        if package.get("version") != "0.1.0":
+        if package.get("version") != "0.1.1":
             raise SystemExit(f"workspace package has incorrect version: {package!r}")
         if package.get("license") is not None:
             raise SystemExit(f"workspace package must use license-file: {package!r}")

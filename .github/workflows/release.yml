@@ -12,15 +12,15 @@ jobs:
   macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify Rust toolchain
         run: rustup show
       - name: Verify tag matches workspace version
         shell: bash
-        run: test "${GITHUB_REF_NAME#v}" = "$(python3 scripts/workspace_version.py)"
+        run: python3 scripts/check_release_tag.py "${GITHUB_REF_NAME}"
       - name: Build unsigned macOS arm64 package
         run: ./scripts/package-macos-app.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lvos-macos-arm64
           path: target/release-package/LVOS-*-macos-arm64.zip
@@ -29,14 +29,12 @@ jobs:
   windows:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify Rust toolchain
         run: rustup show
       - name: Verify tag matches workspace version
         shell: pwsh
-        run: |
-          $version = python scripts/workspace_version.py
-          if ($env:GITHUB_REF_NAME.TrimStart('v') -ne $version.Trim()) { exit 1 }
+        run: python scripts/check_release_tag.py "$env:GITHUB_REF_NAME"
       - name: Build unsigned Windows x86_64 package
         shell: pwsh
         run: |
@@ -46,7 +44,7 @@ jobs:
             --source target/release/lvos.exe `
             --archive-name LVOS.exe `
             --output "target/release-package/LVOS-$version-windows-x86_64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lvos-windows-x86_64
           path: target/release-package/LVOS-*-windows-x86_64.zip
@@ -58,8 +56,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: lvos-*
           path: artifacts
