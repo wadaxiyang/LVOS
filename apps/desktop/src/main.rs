@@ -282,18 +282,23 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let test_application = Arc::clone(&application);
     let test_handle = handle.clone();
-    ui.main_window().on_test_provider(move |tokenhub_model| {
-        let main = main.clone();
-        let application = Arc::clone(&test_application);
-        let tokenhub_model = tokenhub_model.to_string();
-        test_handle.spawn(async move {
-            let message = match application.test_provider(&tokenhub_model).await {
-                Ok(()) => "Provider test succeeded.".to_owned(),
-                Err(error) => format!("Provider test failed: {error}"),
-            };
-            set_settings_error(&main, message);
+    ui.main_window()
+        .on_test_provider(move |tokenhub_model, tokenhub_key| {
+            let main = main.clone();
+            let application = Arc::clone(&test_application);
+            let tokenhub_model = tokenhub_model.to_string();
+            let tokenhub_key = tokenhub_key.to_string();
+            test_handle.spawn(async move {
+                let message = match application
+                    .test_provider(&tokenhub_model, &tokenhub_key)
+                    .await
+                {
+                    Ok(()) => "Provider test succeeded.".to_owned(),
+                    Err(error) => format!("Provider test failed: {error}"),
+                };
+                set_settings_error(&main, message);
+            });
         });
-    });
 
     let main = ui.main_window().as_weak();
     let login_application = Arc::clone(&application);

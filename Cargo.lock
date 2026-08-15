@@ -3054,6 +3054,7 @@ dependencies = [
  "reqwest",
  "rfd",
  "rustls",
+ "secrecy",
  "semver",
  "serde",
  "serde_json",

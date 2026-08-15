@@ -21,6 +21,7 @@ use lvos_translation::{
     CredentialReader, LookupCardErrorKind, ReqwestTransport, TencentTokenHubProvider,
     TimeoutConfig, TranslationProvider, TranslationRequest, validate_tokenhub_model,
 };
+use secrecy::SecretString;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -382,9 +383,16 @@ impl DesktopApplication {
 
     /// Sends one direct request through the configured Tencent `TokenHub` Provider.
     ///
+    /// A non-empty key from the Settings field is tested without persistence. An empty field uses
+    /// the credential already stored for the active Profile.
+    ///
     /// # Errors
     /// Returns a credential, transport, model, or response error.
-    pub async fn test_provider(&self, tokenhub_model: &str) -> Result<(), ApplicationError> {
+    pub async fn test_provider(
+        &self,
+        tokenhub_model: &str,
+        tokenhub_key: &str,
+    ) -> Result<(), ApplicationError> {
         let profile = self.profile();
         let profile_scope = profile.profile_id.to_string();
         let device_scope = profile.device_id.to_string();
@@ -405,7 +413,8 @@ impl DesktopApplication {
             target_language: language("zh-CN"),
         };
         let tokenhub_model = validated_tokenhub_model(tokenhub_model)?;
-        TencentTokenHubProvider::new(transport, reader.tokenhub_api_key()?, timeout)
+        let tokenhub_key = select_provider_test_key(tokenhub_key, || reader.tokenhub_api_key())?;
+        TencentTokenHubProvider::new(transport, tokenhub_key, timeout)
             .with_model(&tokenhub_model)?
             .translate(&request)
             .await?;
@@ -811,6 +820,18 @@ fn validated_tokenhub_model(model: &str) -> Result<String, ApplicationError> {
         })
 }
 
+fn select_provider_test_key(
+    entered_key: &str,
+    stored_key: impl FnOnce() -> Result<SecretString, lvos_translation::ProviderCredentialError>,
+) -> Result<SecretString, lvos_translation::ProviderCredentialError> {
+    let entered_key = entered_key.trim();
+    if entered_key.is_empty() {
+        stored_key()
+    } else {
+        Ok(SecretString::from(entered_key.to_owned()))
+    }
+}
+
 fn write_provider_preferences(
     path: &Path,
     preferences: &ProviderPreferences,
@@ -921,4 +942,30 @@ impl From<serde_json::Error> for ApplicationError {
 #[must_use]
 pub const fn default_server_url() -> &'static str {
     DEFAULT_SERVER_URL
+}
+
+#[cfg(test)]
+mod tests {
+    use secrecy::{ExposeSecret, SecretString};
+
+    use super::select_provider_test_key;
+
+    #[test]
+    fn provider_test_prefers_the_unsaved_settings_key() {
+        let selected = select_provider_test_key("  current-field-key  ", || {
+            unreachable!("a non-empty Settings key must not read the stored credential")
+        })
+        .unwrap_or_else(|error| unreachable!("test key: {error}"));
+
+        assert_eq!(selected.expose_secret(), "current-field-key");
+    }
+
+    #[test]
+    fn provider_test_uses_the_stored_key_when_the_field_is_empty() {
+        let selected =
+            select_provider_test_key("   ", || Ok(SecretString::from("stored-key".to_owned())))
+                .unwrap_or_else(|error| unreachable!("stored key: {error}"));
+
+        assert_eq!(selected.expose_secret(), "stored-key");
+    }
 }

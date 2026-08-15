@@ -286,7 +286,7 @@ export component MainWindow inherits Window {
     callback clear-history-requested;
     callback validate-provider-settings(string, string) -> string;
     callback persist-provider-settings(string, string);
-    callback test-provider(string);
+    callback test-provider(string, string);
     callback login-requested(string, string, string);
     callback logout-requested;
     callback manual-sync-requested;
@@ -430,7 +430,7 @@ export component MainWindow inherits Window {
                                     tokenhub-key := LineEdit { placeholder-text: "Stored in OS Credential Store"; input-type: InputType.password; }
                                     if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
                                     HorizontalLayout { alignment: end; spacing: 8px;
-                                        Button { text: "Test TokenHub"; clicked => { root.test-provider(tokenhub-model.text); } }
+                                        Button { text: "Test TokenHub"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
                                         Button { text: "Save"; clicked => {
                                             root.settings-error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
                                             if (root.settings-error == "") {
