@@ -1,8 +1,8 @@
 //! Windows 11 `x86_64` native platform adapters.
 //!
 //! Win32 and raw handle access is intentionally contained in this module. Selection capture copies
-//! bounded, safely lockable `HGLOBAL` formats into LVOS-owned memory before changing clipboard
-//! ownership, then restores those formats only while the clipboard sequence still belongs to LVOS.
+//! only bounded `CF_UNICODETEXT` data before changing clipboard ownership, then restores that text
+//! only while the clipboard sequence still belongs to LVOS.
 
 #![allow(unsafe_code)]
 
@@ -37,8 +37,8 @@ use windows::{
         Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint},
         System::{
             DataExchange::{
-                CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
-                GetClipboardSequenceNumber, OpenClipboard, SetClipboardData,
+                CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
+                OpenClipboard, SetClipboardData,
             },
             LibraryLoader::GetModuleHandleW,
             Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock},
@@ -806,10 +806,7 @@ fn capture_blocking(timeout: Duration) -> Result<String, CaptureError> {
     );
     tracing::debug!("copying original Windows clipboard into LVOS-owned memory");
     let snapshot = ClipboardSnapshot::capture()?;
-    tracing::debug!(
-        formats = snapshot.formats.len(),
-        "copied original Windows clipboard snapshot"
-    );
+    tracing::debug!("copied original Windows Unicode text clipboard snapshot");
     let clipboard = ClipboardContext::new().map_err(|_| CaptureError::ClipboardUnavailable)?;
     clipboard
         .set_text(format!("LVOS-CAPTURE-{}", std::process::id()))
@@ -971,61 +968,37 @@ fn key_is_down(key: VIRTUAL_KEY) -> bool {
     (unsafe { GetAsyncKeyState(i32::from(key.0)) }) < 0
 }
 
-struct ClipboardFormatSnapshot {
-    format: u32,
-    bytes: Vec<u8>,
-}
-
 struct ClipboardSnapshot {
-    formats: Vec<ClipboardFormatSnapshot>,
+    unicode_text: Option<Vec<u8>>,
 }
 
 impl ClipboardSnapshot {
     fn capture() -> Result<Self, CaptureError> {
-        const MAX_FORMAT_BYTES: usize = 32 * 1024 * 1024;
-        const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+        const MAX_TEXT_BYTES: usize = 4 * 1024 * 1024;
         let _clipboard = ClipboardReadGuard::open()?;
-        let mut formats = Vec::new();
-        let mut format = 0_u32;
-        let mut total = 0_usize;
-        loop {
-            // SAFETY: the clipboard is open and passing the previous result enumerates formats.
-            format = unsafe { EnumClipboardFormats(format) };
-            if format == 0 {
-                break;
-            }
-            // SAFETY: the clipboard is open; requesting a delayed format asks its live owner to
-            // render it now. The returned handle remains clipboard-owned.
-            let Ok(handle) = (unsafe { GetClipboardData(format) }) else {
-                tracing::debug!(format, "skipped unavailable Windows clipboard format");
-                continue;
-            };
-            let global = HGLOBAL(handle.0);
-            // SAFETY: HGLOBAL-compatible formats report their allocation size. Other handle types
-            // report zero and are skipped rather than interpreted as bytes.
-            let size = unsafe { GlobalSize(global) };
-            if size == 0 || size > MAX_FORMAT_BYTES || total.saturating_add(size) > MAX_TOTAL_BYTES
-            {
-                tracing::debug!(
-                    format,
-                    size,
-                    "skipped non-memory or oversized clipboard format"
-                );
-                continue;
-            }
-            // SAFETY: global remains owned by the open clipboard and is copied before close.
-            let pointer = unsafe { GlobalLock(global) }.cast::<u8>();
-            if pointer.is_null() {
-                tracing::debug!(format, size, "could not lock Windows clipboard format");
-                continue;
-            }
-            let _lock = GlobalMemoryLock(global);
-            // SAFETY: GlobalSize bounds the readable allocation while its lock is held.
-            let bytes = unsafe { std::slice::from_raw_parts(pointer, size) }.to_vec();
-            total += size;
-            formats.push(ClipboardFormatSnapshot { format, bytes });
-        }
-        Ok(Self { formats })
+        // SAFETY: the clipboard is open; only CF_UNICODETEXT is requested, avoiding delayed
+        // rendering of unrelated formats supplied by browsers and office applications.
+        let unicode_text = unsafe { GetClipboardData(u32::from(CF_UNICODETEXT.0)) }
+            .ok()
+            .and_then(|handle| {
+                let global = HGLOBAL(handle.0);
+                let size = unsafe { GlobalSize(global) };
+                if size < size_of::<u16>() || size > MAX_TEXT_BYTES {
+                    tracing::debug!(
+                        size,
+                        "skipped missing or oversized original Unicode clipboard text"
+                    );
+                    return None;
+                }
+                let pointer = unsafe { GlobalLock(global) }.cast::<u8>();
+                if pointer.is_null() {
+                    tracing::debug!("could not lock original Unicode clipboard text");
+                    return None;
+                }
+                let _lock = GlobalMemoryLock(global);
+                Some(unsafe { std::slice::from_raw_parts(pointer, size) }.to_vec())
+            });
+        Ok(Self { unicode_text })
     }
 
     fn restore(self) -> Result<(), CaptureError> {
@@ -1033,20 +1006,17 @@ impl ClipboardSnapshot {
         let _clipboard = ClipboardReadGuard::open_for(owner.0)?;
         // SAFETY: owner is a valid live window for this open clipboard operation.
         unsafe { EmptyClipboard() }.map_err(|_| CaptureError::ClipboardUnavailable)?;
-        for entry in self.formats {
-            restore_clipboard_format(&entry);
+        if let Some(bytes) = self.unicode_text {
+            restore_unicode_clipboard_text(&bytes);
         }
         Ok(())
     }
 }
 
-fn restore_clipboard_format(entry: &ClipboardFormatSnapshot) {
+fn restore_unicode_clipboard_text(bytes: &[u8]) {
     // SAFETY: allocating movable global memory is required by SetClipboardData.
-    let Ok(global) = (unsafe { GlobalAlloc(GMEM_MOVEABLE, entry.bytes.len()) }) else {
-        tracing::warn!(
-            format = entry.format,
-            "could not allocate restored clipboard format"
-        );
+    let Ok(global) = (unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len()) }) else {
+        tracing::warn!("could not allocate restored Unicode clipboard text");
         return;
     };
     // SAFETY: newly allocated memory is exclusively owned here.
@@ -1057,14 +1027,11 @@ fn restore_clipboard_format(entry: &ClipboardFormatSnapshot) {
         return;
     }
     // SAFETY: destination allocation exactly matches the source length and does not overlap.
-    unsafe { std::ptr::copy_nonoverlapping(entry.bytes.as_ptr(), pointer, entry.bytes.len()) };
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len()) };
     let _ = unsafe { GlobalUnlock(global) };
     // SAFETY: the clipboard is open and empty; success transfers allocation ownership to Windows.
-    if unsafe { SetClipboardData(entry.format, Some(HANDLE(global.0))) }.is_err() {
-        tracing::warn!(
-            format = entry.format,
-            "could not restore Windows clipboard format"
-        );
+    if unsafe { SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(global.0))) }.is_err() {
+        tracing::warn!("could not restore Unicode clipboard text");
         // SAFETY: failed SetClipboardData leaves ownership with LVOS.
         let _ = unsafe { GlobalFree(Some(global)) };
     }

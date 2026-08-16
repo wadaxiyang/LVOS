@@ -15,6 +15,8 @@ History and optional synchronized Favorites.
   Device-scoped QueryStats can be uploaded to the user's private Server.
 - Each account has an isolated local Profile database. The application remains useful for cached
   lookup and local data when the Server is unavailable.
+- On Windows, LVOS temporarily replaces the current clipboard and restores text only; images,
+  files, and rich-text clipboard formats are not restored.
 
 ## Installation
 
