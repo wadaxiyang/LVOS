@@ -73,8 +73,8 @@ component RecordCard inherits Rectangle {
 
 export component QuickLookupPopup inherits Window {
     title: "LVOS Lookup Card";
-    width: root.text-mode ? 520px : 360px;
-    height: root.text-mode ? 240px : 180px;
+    width: root.text-mode ? 700px : 360px;
+    height: root.text-mode ? 420px : 180px;
     background: transparent;
     always-on-top: true;
     no-frame: true;
@@ -129,8 +129,9 @@ export component QuickLookupPopup inherits Window {
                     color: #111827;
                     font-size: root.text-mode ? 15px : 18px;
                     font-weight: 600;
+                    width: parent.width - 52px;
                     wrap: root.text-mode ? word-wrap : no-wrap;
-                    overflow: elide;
+                    overflow: root.text-mode ? clip : elide;
                 }
                 IconButton {
                     label: root.favorite ? "★" : "☆";
@@ -148,9 +149,10 @@ export component QuickLookupPopup inherits Window {
             if !root.loading && !root.error-visible: Text {
                 text: root.translated-text;
                 color: #273247;
-                font-size: 15px;
+                width: parent.width;
+                font-size: root.text-mode ? 16px : 15px;
                 wrap: word-wrap;
-                overflow: elide;
+                overflow: root.text-mode ? clip : elide;
             }
 
             if root.error-visible: Rectangle {
