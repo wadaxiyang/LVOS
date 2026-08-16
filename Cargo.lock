@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "lvos"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "axum",
@@ -3071,14 +3071,14 @@ dependencies = [
 
 [[package]]
 name = "lvos-auth"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "lvos-core",
 ]
 
 [[package]]
 name = "lvos-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "sha2 0.11.0",
  "unicode-casefold",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-platform"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "block2 0.6.2",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-server"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "argon2",
  "axum",
@@ -3138,7 +3138,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-storage"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "lvos-core",
  "lvos-sync",
@@ -3151,7 +3151,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-sync"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "lvos-core",
  "serde",
@@ -3159,7 +3159,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-translation"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "futures-util",
