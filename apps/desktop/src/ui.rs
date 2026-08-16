@@ -388,8 +388,9 @@ mod windows_window {
     use windows::Win32::{
         Foundation::{HWND, RECT},
         UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST, SWP_NOACTIVATE,
-            SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos, WS_EX_TOOLWINDOW,
+            GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST, SWP_FRAMECHANGED,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos,
+            WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
         },
     };
 
@@ -486,11 +487,17 @@ mod windows_window {
             tracing::warn!("Windows tool-window style is not representable");
             return;
         };
+        let Ok(app_window_style) = isize::try_from(WS_EX_APPWINDOW.0) else {
+            tracing::warn!("Windows app-window style is not representable");
+            return;
+        };
         unsafe {
             SetWindowLongPtrW(
                 hwnd,
                 GWL_EXSTYLE,
-                (styles & !0x0800_0000_isize) | no_activate_style | tool_window_style,
+                (styles & !0x0800_0000_isize & !app_window_style)
+                    | no_activate_style
+                    | tool_window_style,
             );
         }
         let _ = unsafe {
@@ -501,7 +508,7 @@ mod windows_window {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             )
         };
     }
