@@ -73,8 +73,8 @@ component RecordCard inherits Rectangle {
 
 export component QuickLookupPopup inherits Window {
     title: "LVOS Lookup Card";
-    width: root.text-mode ? 700px : 360px;
-    height: root.text-mode ? 420px : 180px;
+    width: root.popup-width;
+    height: root.popup-height;
     background: transparent;
     always-on-top: true;
     no-frame: true;
@@ -89,6 +89,8 @@ export component QuickLookupPopup inherits Window {
     in property <bool> loading;
     in property <bool> text-mode;
     in property <bool> error-visible;
+    in property <length> popup-width: 360px;
+    in property <length> popup-height: 180px;
     callback favorite-toggled;
     callback refresh-requested;
     callback interaction-started;
@@ -127,11 +129,11 @@ export component QuickLookupPopup inherits Window {
                 Text {
                     text: root.source-text;
                     color: #111827;
-                    font-size: root.text-mode ? 15px : 18px;
+                    font-size: 17px;
                     font-weight: 600;
                     width: parent.width - 52px;
-                    wrap: root.text-mode ? word-wrap : no-wrap;
-                    overflow: root.text-mode ? clip : elide;
+                    wrap: no-wrap;
+                    overflow: elide;
                 }
                 IconButton {
                     label: root.favorite ? "★" : "☆";
@@ -146,13 +148,20 @@ export component QuickLookupPopup inherits Window {
                 Text { text: "Translating…"; color: #6b7280; }
             }
 
-            if !root.loading && !root.error-visible: Text {
-                text: root.translated-text;
-                color: #273247;
-                width: parent.width;
-                font-size: root.text-mode ? 16px : 15px;
-                wrap: word-wrap;
-                overflow: root.text-mode ? clip : elide;
+            if !root.loading && !root.error-visible: ScrollView {
+                vertical-stretch: 1;
+                horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+                VerticalLayout {
+                    width: root.popup-width - 52px;
+                    Text {
+                        text: root.translated-text;
+                        color: #273247;
+                        width: root.popup-width - 52px;
+                        font-size: 16px;
+                        wrap: word-wrap;
+                        overflow: clip;
+                    }
+                }
             }
 
             if root.error-visible: Rectangle {

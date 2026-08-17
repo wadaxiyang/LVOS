@@ -31,7 +31,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.3",
+                    "version": "0.1.4",
                     "license": None,
                     "license_file": license_path,
                 }
@@ -74,11 +74,11 @@ class WorkspaceCheckTests(unittest.TestCase):
         self.assertIn("actions/download-artifact@v8", release)
 
     def test_release_tag_must_match_workspace_version(self) -> None:
-        check_release_tag("v0.1.3", "0.1.3")
+        check_release_tag("v0.1.4", "0.1.4")
         with self.assertRaisesRegex(ValueError, "does not match"):
-            check_release_tag("v0.1.2", "0.1.3")
+            check_release_tag("v0.1.3", "0.1.4")
         with self.assertRaisesRegex(ValueError, "plain v<SemVer>"):
-            check_release_tag("0.1.3", "0.1.3")
+            check_release_tag("0.1.4", "0.1.4")
 
     def test_translation_surface_is_tokenhub_only(self) -> None:
         root = Path(__file__).parent.parent

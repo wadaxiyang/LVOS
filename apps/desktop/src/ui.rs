@@ -48,6 +48,7 @@ pub fn show_captured_provider_error(
     popup.set_source_text(source.into());
     popup.set_error_title(title.into());
     popup.set_error_detail(detail.into());
+    set_popup_dimensions(popup, source, "");
     popup.set_loading(false);
     popup.set_error_visible(true);
     popup.set_text_mode(source.split_whitespace().count() > 1);
@@ -349,6 +350,7 @@ fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState
         LookupCardState::Loading { source, .. } => {
             popup.set_source_text(source.into());
             popup.set_translated_text(SharedString::default());
+            set_popup_dimensions(popup, source, "");
             popup.set_loading(true);
             popup.set_error_visible(false);
             popup.set_text_mode(source.split_whitespace().count() > 1);
@@ -362,6 +364,7 @@ fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState
         } => {
             popup.set_source_text(source.into());
             popup.set_translated_text(translation.into());
+            set_popup_dimensions(popup, source, translation);
             popup.set_favorite(*favorite);
             popup.set_effective_count(saturating_i32(*effective_query_count));
             popup.set_loading(false);
@@ -373,11 +376,46 @@ fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState
             popup.set_source_text(source.into());
             popup.set_error_title(title.into());
             popup.set_error_detail(detail.into());
+            set_popup_dimensions(popup, source, "");
             popup.set_loading(false);
             popup.set_error_visible(true);
             popup.set_text_mode(source.split_whitespace().count() > 1);
         }
     }
+}
+
+const POPUP_MIN_WIDTH: u32 = 360;
+const POPUP_MAX_WIDTH: u32 = 640;
+const POPUP_MIN_HEIGHT: u32 = 180;
+const POPUP_MAX_HEIGHT: u32 = 420;
+
+fn set_popup_dimensions(popup: &QuickLookupPopup, source: &str, translation: &str) {
+    // Estimate the layout using the rendered text length. Slint then performs the final
+    // word-wrapping inside these bounded dimensions, keeping short lookups compact.
+    let longest_line = source
+        .lines()
+        .chain(translation.lines())
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let width_hint = u32::try_from(longest_line.saturating_mul(8)).unwrap_or(u32::MAX);
+    let width = (120_u32.saturating_add(width_hint)).clamp(POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+    let chars_per_line = (width.saturating_sub(52) / 8).max(1) as usize;
+    let source_lines = wrapped_line_count(source, chars_per_line);
+    let translation_lines = wrapped_line_count(translation, chars_per_line);
+    let content_lines =
+        u32::try_from(source_lines.saturating_add(translation_lines).max(1)).unwrap_or(u32::MAX);
+    let height =
+        (126_u32 + content_lines.saturating_mul(22)).clamp(POPUP_MIN_HEIGHT, POPUP_MAX_HEIGHT);
+
+    popup.set_popup_width(f32::from(u16::try_from(width).unwrap_or(u16::MAX)));
+    popup.set_popup_height(f32::from(u16::try_from(height).unwrap_or(u16::MAX)));
+}
+
+fn wrapped_line_count(text: &str, chars_per_line: usize) -> usize {
+    text.lines()
+        .map(|line| line.chars().count().div_ceil(chars_per_line).max(1))
+        .sum()
 }
 
 #[cfg(target_os = "windows")]

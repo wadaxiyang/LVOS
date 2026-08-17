@@ -403,7 +403,7 @@ fn legacy_database_is_backed_up_consistently_before_migration() {
         .unwrap_or_else(|| unreachable!("backup expected"));
     assert!(artifact.path.exists());
     assert_eq!(artifact.source_schema_version, 0);
-    assert_eq!(artifact.app_version, "0.1.3");
+    assert_eq!(artifact.app_version, "0.1.4");
     let backup =
         Connection::open(&artifact.path).unwrap_or_else(|error| unreachable!("backup: {error}"));
     let value: String = backup
