@@ -98,17 +98,20 @@ impl ReqwestTransport {
     ///
     /// # Errors
     /// Returns an error when either timeout is zero or the native client cannot be built.
-    pub fn new(timeout: TimeoutConfig) -> Result<Self, TransportError> {
+    pub fn new(timeout: TimeoutConfig, proxy_url: Option<&str>) -> Result<Self, TransportError> {
         if timeout.connect.is_zero() || timeout.request.is_zero() {
             return Err(TransportError::Configuration);
         }
         let provider = rustls::crypto::ring::default_provider();
         let _ = provider.install_default();
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .connect_timeout(timeout.connect)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| TransportError::Configuration)?;
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some(proxy_url) = proxy_url {
+            builder = builder
+                .proxy(reqwest::Proxy::all(proxy_url).map_err(|_| TransportError::Configuration)?);
+        }
+        let client = builder.build().map_err(|_| TransportError::Configuration)?;
         Ok(Self { client })
     }
 }

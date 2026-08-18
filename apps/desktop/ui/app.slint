@@ -280,6 +280,10 @@ export component MainWindow inherits Window {
     in property <[UiRecord]> favorite-records;
     in property <[DeviceRecord]> devices;
     in-out property <string> tokenhub-model: "hy-mt2-lite";
+    in-out property <int> proxy-kind: 0;
+    in-out property <string> proxy-address;
+    in-out property <bool> provider-proxy-enabled: false;
+    in-out property <bool> update-proxy-enabled: false;
     in property <string> server-url: "https://lvos.niuniu770.site";
     in property <string> username;
     in property <string> current-device;
@@ -296,7 +300,8 @@ export component MainWindow inherits Window {
     callback favorite-toggled(string, bool);
     callback clear-history-requested;
     callback validate-provider-settings(string, string) -> string;
-    callback persist-provider-settings(string, string);
+    callback persist-provider-settings(string, string, bool);
+    callback persist-network-settings(string, int, bool, bool) -> string;
     callback test-provider(string, string);
     callback login-requested(string, string, string);
     callback logout-requested;
@@ -424,6 +429,22 @@ export component MainWindow inherits Window {
                                         checked <=> root.launch-minimized;
                                         toggled => { root.settings-error = root.update-launch-minimized(self.checked); }
                                     }
+                                    Text { text: "Network Proxy"; font-weight: 600; }
+                                    Text { text: "Proxy type"; color: #4b5563; }
+                                    proxy-type := ComboBox {
+                                        model: ["HTTP", "SOCKS5"];
+                                        current-index <=> root.proxy-kind;
+                                    }
+                                    Text { text: "Proxy address (host:port)"; color: #4b5563; }
+                                    proxy-address := LineEdit { text <=> root.proxy-address; placeholder-text: "127.0.0.1:7890"; }
+                                    Button { text: "Save Network Settings"; clicked => {
+                                        root.settings-error = root.persist-network-settings(
+                                            proxy-address.text,
+                                            proxy-type.current-index,
+                                            root.provider-proxy-enabled,
+                                            root.update-proxy-enabled
+                                        );
+                                    } }
                                 }
                             }
                         }
@@ -439,13 +460,17 @@ export component MainWindow inherits Window {
                                     tokenhub-model := LineEdit { text <=> root.tokenhub-model; placeholder-text: "hy-mt2-lite"; }
                                     Text { text: "Tencent TokenHub API Key"; font-weight: 600; }
                                     tokenhub-key := LineEdit { placeholder-text: "Stored in OS Credential Store"; input-type: InputType.password; }
+                                    provider-proxy := Switch {
+                                        text: "Use proxy for Provider requests";
+                                        checked <=> root.provider-proxy-enabled;
+                                    }
                                     if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
                                     HorizontalLayout { alignment: end; spacing: 8px;
                                         Button { text: "Test TokenHub"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
                                         Button { text: "Save"; clicked => {
                                             root.settings-error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
                                             if (root.settings-error == "") {
-                                                root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text);
+                                                root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked);
                                                 tokenhub-key.text = "";
                                             }
                                         } }
@@ -517,7 +542,7 @@ export component MainWindow inherits Window {
                         if root.settings-page == 7: VerticalLayout {
                             spacing: 18px;
                             SectionHeader { title: "Update"; subtitle: "Unsigned releases are downloaded manually from GitHub Releases."; }
-                            SettingsCard { height: 160px; VerticalLayout { padding: 18px; spacing: 12px; Text { text: root.update-status; color: #4b5563; } Button { text: "Check for Updates"; clicked => { root.check-update-requested(); } } } }
+                            SettingsCard { height: 210px; VerticalLayout { padding: 18px; spacing: 12px; Text { text: root.update-status; color: #4b5563; } update-proxy := Switch { text: "Use proxy for update checks"; checked <=> root.update-proxy-enabled; } HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Save Network"; clicked => { root.settings-error = root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked); } } Button { text: "Check for Updates"; clicked => { root.check-update-requested(); } } } } }
                         }
                     }
                 }

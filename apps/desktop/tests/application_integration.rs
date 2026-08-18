@@ -4,7 +4,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use lvos::{DesktopApplication, LookupCardState, LookupMode, ProviderPreferences};
+use lvos::{
+    DesktopApplication, LookupCardState, LookupMode, NetworkPreferences, ProviderPreferences,
+    ProxyKind,
+};
 use lvos_auth::{AuthError, CredentialKey, CredentialScope, CredentialStore};
 use lvos_core::{LanguageCode, UnixTimestamp, ValidationPolicy, prepare_content};
 use lvos_storage::{HistoryEntry, Platform, StoredContent, TranslationSnapshot};
@@ -178,6 +181,51 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
     );
 
     assert_provider_settings_are_secret_free_and_include_model(directory.path());
+}
+
+#[tokio::test]
+async fn network_proxy_preferences_persist_without_secrets() {
+    let directory = tempdir().unwrap_or_else(|error| unreachable!("fixture: {error}"));
+    let credentials = Arc::new(MemoryCredentials::default());
+    let store: Arc<dyn CredentialStore> = credentials.clone();
+    let application = DesktopApplication::open(
+        directory.path().to_path_buf(),
+        Platform::Macos,
+        "integration-mac",
+        Arc::clone(&store) as Arc<dyn CredentialStore>,
+    )
+    .await
+    .unwrap_or_else(|error| unreachable!("application: {error}"));
+    application
+        .save_network_preferences(NetworkPreferences {
+            proxy_kind: ProxyKind::Socks5,
+            proxy_address: "127.0.0.1:1080".to_owned(),
+            provider_proxy_enabled: true,
+            update_proxy_enabled: true,
+        })
+        .unwrap_or_else(|error| unreachable!("network settings: {error}"));
+    drop(application);
+
+    let reopened = DesktopApplication::open(
+        directory.path().to_path_buf(),
+        Platform::Macos,
+        "integration-mac",
+        store,
+    )
+    .await
+    .unwrap_or_else(|error| unreachable!("reopen: {error}"));
+    assert_eq!(
+        reopened.network_preferences(),
+        NetworkPreferences {
+            proxy_kind: ProxyKind::Socks5,
+            proxy_address: "127.0.0.1:1080".to_owned(),
+            provider_proxy_enabled: true,
+            update_proxy_enabled: true,
+        }
+    );
+    let saved = std::fs::read_to_string(directory.path().join("network-settings.json"))
+        .unwrap_or_else(|error| unreachable!("network settings file: {error}"));
+    assert!(saved.contains("127.0.0.1:1080"));
 }
 
 fn assert_provider_settings_are_secret_free_and_include_model(root: &std::path::Path) {

@@ -36,6 +36,100 @@ use crate::{
 const MAX_LOOKUP_BYTES: usize = 2_000;
 const HISTORY_PAGE_LIMIT: u32 = 200;
 const PROVIDER_SCOPE_ORIGIN: &str = "lvos://translation-provider";
+const NETWORK_SETTINGS_FILE: &str = "network-settings.json";
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyKind {
+    #[default]
+    Http,
+    Socks5,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkPreferences {
+    pub proxy_kind: ProxyKind,
+    pub proxy_address: String,
+    pub provider_proxy_enabled: bool,
+    pub update_proxy_enabled: bool,
+}
+
+impl Default for NetworkPreferences {
+    fn default() -> Self {
+        Self {
+            proxy_kind: ProxyKind::Http,
+            proxy_address: String::new(),
+            provider_proxy_enabled: false,
+            update_proxy_enabled: false,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for NetworkPreferences {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WirePreferences {
+            #[serde(default)]
+            proxy_kind: ProxyKind,
+            #[serde(default)]
+            proxy_address: String,
+            #[serde(default)]
+            provider_proxy_enabled: bool,
+            #[serde(default)]
+            update_proxy_enabled: bool,
+        }
+
+        let wire = WirePreferences::deserialize(deserializer)?;
+        Ok(Self {
+            proxy_kind: wire.proxy_kind,
+            proxy_address: wire.proxy_address,
+            provider_proxy_enabled: wire.provider_proxy_enabled,
+            update_proxy_enabled: wire.update_proxy_enabled,
+        })
+    }
+}
+
+impl NetworkPreferences {
+    /// Resolves the validated proxy address into the URL consumed by HTTP clients.
+    ///
+    /// # Errors
+    /// Returns an error when the address is not a credential-free host and port.
+    pub fn proxy_url(&self) -> Result<Option<String>, ApplicationError> {
+        let address = self.proxy_address.trim();
+        if address.is_empty() {
+            return Ok(None);
+        }
+        if address.chars().any(char::is_control) {
+            return Err(ApplicationError::ProxySettings(
+                "Proxy address contains a control character",
+            ));
+        }
+        let scheme = match self.proxy_kind {
+            ProxyKind::Http => "http",
+            ProxyKind::Socks5 => "socks5",
+        };
+        let url = reqwest::Url::parse(&format!("{scheme}://{address}"))
+            .map_err(|_| ApplicationError::ProxySettings("Proxy address must be host:port"))?;
+        if url.host_str().is_none()
+            || url.port().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || !matches!(url.path(), "" | "/")
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(ApplicationError::ProxySettings(
+                "Proxy address must be host:port without credentials",
+            ));
+        }
+        Ok(Some(url.to_string()))
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +181,7 @@ pub struct DesktopApplication {
     credentials: Arc<dyn CredentialStore>,
     profile: RwLock<ProfileMetadata>,
     provider_preferences: RwLock<ProviderPreferences>,
+    network_preferences: RwLock<NetworkPreferences>,
     lookup: RwLock<Arc<LookupService>>,
     generation: AtomicU64,
     last_source: Mutex<Option<String>>,
@@ -138,6 +233,7 @@ impl DesktopApplication {
             .unwrap_or_else(|| new_unbound_profile(&installation));
         database.switch_profile(profile.clone()).await?;
         let preferences = read_provider_preferences(&provider_path(&root, profile.profile_id))?;
+        let network_preferences = read_network_preferences(&network_path(&root))?;
         let sync_transport = Arc::new(HttpSyncTransport::new()?);
         let application = Arc::new(Self {
             root,
@@ -147,6 +243,7 @@ impl DesktopApplication {
             credentials,
             profile: RwLock::new(profile),
             provider_preferences: RwLock::new(preferences),
+            network_preferences: RwLock::new(network_preferences),
             lookup: RwLock::new(Arc::new(LookupService::new_without_provider(Arc::clone(
                 &database,
             )))),
@@ -186,6 +283,38 @@ impl DesktopApplication {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    #[must_use]
+    pub fn network_preferences(&self) -> NetworkPreferences {
+        self.network_preferences
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Persists proxy settings and rebuilds the Provider client with the new selection.
+    ///
+    /// # Errors
+    /// Returns an error when the proxy address is invalid, settings cannot be written, or the
+    /// Provider client cannot be rebuilt.
+    pub fn save_network_preferences(
+        &self,
+        mut preferences: NetworkPreferences,
+    ) -> Result<(), ApplicationError> {
+        let trimmed_proxy_address = preferences.proxy_address.trim().to_owned();
+        preferences.proxy_address = trimmed_proxy_address;
+        let proxy_url = preferences.proxy_url()?;
+        if proxy_url.is_none() {
+            preferences.provider_proxy_enabled = false;
+            preferences.update_proxy_enabled = false;
+        }
+        write_network_preferences(&network_path(&self.root), &preferences)?;
+        *self
+            .network_preferences
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = preferences;
+        self.rebuild_lookup_service()
     }
 
     /// Reports credential presence without returning either secret.
@@ -403,8 +532,10 @@ impl DesktopApplication {
             &device_scope,
         );
         let timeout = TimeoutConfig::default();
+        let network = self.network_preferences();
+        let proxy_url = network.proxy_proxy_url(network.provider_proxy_enabled)?;
         let transport = Arc::new(
-            ReqwestTransport::new(timeout)
+            ReqwestTransport::new(timeout, proxy_url.as_deref())
                 .map_err(|_| ApplicationError::ProviderSettings("HTTP transport unavailable"))?,
         );
         let request = TranslationRequest {
@@ -725,8 +856,10 @@ impl DesktopApplication {
             &device_scope,
         );
         let timeout = TimeoutConfig::default();
+        let network = self.network_preferences();
+        let proxy_url = network.proxy_proxy_url(network.provider_proxy_enabled)?;
         let transport = Arc::new(
-            ReqwestTransport::new(timeout)
+            ReqwestTransport::new(timeout, proxy_url.as_deref())
                 .map_err(|_| ApplicationError::ProviderSettings("HTTP transport unavailable"))?,
         );
         let lookup = reader.tokenhub_api_key().map_or_else(
@@ -764,6 +897,12 @@ impl DesktopApplication {
     }
 }
 
+impl NetworkPreferences {
+    fn proxy_proxy_url(&self, enabled: bool) -> Result<Option<String>, ApplicationError> {
+        if enabled { self.proxy_url() } else { Ok(None) }
+    }
+}
+
 fn new_unbound_profile(installation: &InstallationMetadata) -> ProfileMetadata {
     let timestamp = now();
     ProfileMetadata {
@@ -794,6 +933,19 @@ fn now() -> UnixTimestamp {
 
 fn provider_path(root: &Path, profile_id: Uuid) -> PathBuf {
     root.join(format!("provider-settings-{profile_id}.json"))
+}
+
+fn network_path(root: &Path) -> PathBuf {
+    root.join(NETWORK_SETTINGS_FILE)
+}
+
+fn read_network_preferences(path: &Path) -> Result<NetworkPreferences, ApplicationError> {
+    if !path.exists() {
+        return Ok(NetworkPreferences::default());
+    }
+    let preferences: NetworkPreferences = serde_json::from_slice(&fs::read(path)?)?;
+    preferences.proxy_url()?;
+    Ok(preferences)
 }
 
 fn read_provider_preferences(path: &Path) -> Result<ProviderPreferences, ApplicationError> {
@@ -842,6 +994,16 @@ fn write_provider_preferences(
     Ok(())
 }
 
+fn write_network_preferences(
+    path: &Path,
+    preferences: &NetworkPreferences,
+) -> Result<(), ApplicationError> {
+    let temporary = path.with_extension("tmp");
+    fs::write(&temporary, serde_json::to_vec_pretty(preferences)?)?;
+    fs::rename(temporary, path)?;
+    Ok(())
+}
+
 #[derive(Debug)]
 pub enum ApplicationError {
     Io(std::io::Error),
@@ -855,6 +1017,7 @@ pub enum ApplicationError {
     DeviceIdentity(crate::DeviceIdentityError),
     Json(serde_json::Error),
     ProviderSettings(&'static str),
+    ProxySettings(&'static str),
 }
 
 impl fmt::Display for ApplicationError {
@@ -872,7 +1035,9 @@ impl fmt::Display for ApplicationError {
             Self::Translation(error) => write!(formatter, "Provider test failed: {error}"),
             Self::DeviceIdentity(error) => write!(formatter, "Device recovery failed: {error}"),
             Self::Json(error) => write!(formatter, "Provider settings are invalid: {error}"),
-            Self::ProviderSettings(message) => formatter.write_str(message),
+            Self::ProviderSettings(message) | Self::ProxySettings(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
@@ -948,7 +1113,52 @@ pub const fn default_server_url() -> &'static str {
 mod tests {
     use secrecy::{ExposeSecret, SecretString};
 
-    use super::select_provider_test_key;
+    use super::{NetworkPreferences, ProxyKind, select_provider_test_key};
+
+    #[test]
+    fn network_preferences_default_to_direct_requests() {
+        let preferences = NetworkPreferences::default();
+        assert_eq!(preferences.proxy_kind, ProxyKind::Http);
+        assert!(preferences.proxy_address.is_empty());
+        assert!(!preferences.provider_proxy_enabled);
+        assert!(!preferences.update_proxy_enabled);
+        assert_eq!(
+            preferences
+                .proxy_url()
+                .unwrap_or_else(|error| unreachable!("proxy: {error}")),
+            None
+        );
+    }
+
+    #[test]
+    fn network_preferences_validate_http_and_socks5_addresses() {
+        let http = NetworkPreferences {
+            proxy_kind: ProxyKind::Http,
+            proxy_address: "127.0.0.1:7890".to_owned(),
+            ..NetworkPreferences::default()
+        };
+        assert_eq!(
+            http.proxy_url()
+                .unwrap_or_else(|error| unreachable!("proxy: {error}")),
+            Some("http://127.0.0.1:7890/".to_owned())
+        );
+        let socks = NetworkPreferences {
+            proxy_kind: ProxyKind::Socks5,
+            proxy_address: "localhost:1080".to_owned(),
+            ..NetworkPreferences::default()
+        };
+        assert_eq!(
+            socks
+                .proxy_url()
+                .unwrap_or_else(|error| unreachable!("proxy: {error}")),
+            Some("socks5://localhost:1080".to_owned())
+        );
+        let invalid = NetworkPreferences {
+            proxy_address: "http://user:secret@localhost:7890".to_owned(),
+            ..NetworkPreferences::default()
+        };
+        assert!(invalid.proxy_url().is_err());
+    }
 
     #[test]
     fn provider_test_prefers_the_unsaved_settings_key() {

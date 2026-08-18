@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -87,7 +87,7 @@ pub trait UpdateTransport: Send + Sync {
 
 #[derive(Clone, Debug)]
 pub struct HttpUpdateTransport {
-    client: reqwest::Client,
+    client: Arc<RwLock<reqwest::Client>>,
 }
 
 impl HttpUpdateTransport {
@@ -95,16 +95,37 @@ impl HttpUpdateTransport {
     ///
     /// # Errors
     /// Returns an error when the HTTP client cannot be initialized.
-    pub fn new() -> Result<Self, UpdateError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
-            .user_agent(format!("LVOS/{SOFTWARE_VERSION}"))
-            .build()
-            .map_err(|_| UpdateError::Network)?;
-        Ok(Self { client })
+    pub fn new(proxy_url: Option<&str>) -> Result<Self, UpdateError> {
+        let client = build_update_client(proxy_url)?;
+        Ok(Self {
+            client: Arc::new(RwLock::new(client)),
+        })
     }
+
+    /// Replaces the client so the next update request uses the selected proxy.
+    ///
+    /// # Errors
+    /// Returns a network error when the proxy client cannot be constructed.
+    pub fn set_proxy_url(&self, proxy_url: Option<&str>) -> Result<(), UpdateError> {
+        let client = build_update_client(proxy_url)?;
+        *self
+            .client
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = client;
+        Ok(())
+    }
+}
+
+fn build_update_client(proxy_url: Option<&str>) -> Result<reqwest::Client, UpdateError> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .user_agent(format!("LVOS/{SOFTWARE_VERSION}"));
+    if let Some(proxy_url) = proxy_url {
+        builder = builder.proxy(reqwest::Proxy::all(proxy_url).map_err(|_| UpdateError::Network)?);
+    }
+    builder.build().map_err(|_| UpdateError::Network)
 }
 
 #[async_trait]
@@ -118,8 +139,12 @@ impl UpdateTransport for HttpUpdateTransport {
         {
             return Err(UpdateError::InvalidReleaseSource);
         }
-        let response = self
+        let client = self
             .client
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let response = client
             .get(url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", GITHUB_REST_API_VERSION)

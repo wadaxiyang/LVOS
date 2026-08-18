@@ -11,7 +11,8 @@ use std::{path::PathBuf, sync::Arc};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use lvos::{
     DesktopApplication, GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, LookupMode,
-    NativeReleasePageOpener, ProviderPreferences, UpdateCheckOutcome, UpdateCoordinator,
+    NativeReleasePageOpener, NetworkPreferences, ProviderPreferences, ProxyKind,
+    UpdateCheckOutcome, UpdateCoordinator,
 };
 use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
@@ -59,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let application = install_application_runtime(&ui, &runtime)?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    install_update_runtime(&ui, &runtime)?;
+    install_update_runtime(&ui, &runtime, &application)?;
     #[cfg(target_os = "macos")]
     let native = install_macos_runtime(&ui, &runtime, instance, Arc::clone(&application))?;
     #[cfg(target_os = "windows")]
@@ -120,6 +121,17 @@ fn install_application_runtime(
         .set_tokenhub_model(preferences.tokenhub_model.clone().into());
     ui.main_window()
         .set_tokenhub_configured(application.provider_configuration()?);
+    let network = application.network_preferences();
+    ui.main_window()
+        .set_proxy_address(network.proxy_address.clone().into());
+    ui.main_window().set_proxy_kind(match network.proxy_kind {
+        ProxyKind::Http => 0,
+        ProxyKind::Socks5 => 1,
+    });
+    ui.main_window()
+        .set_provider_proxy_enabled(network.provider_proxy_enabled);
+    ui.main_window()
+        .set_update_proxy_enabled(network.update_proxy_enabled);
     let profile = application.profile();
     ui.main_window().set_server_url(
         profile
@@ -259,25 +271,61 @@ fn install_local_ui_callbacks(
 
     let main = ui.main_window().as_weak();
     let settings_application = Arc::clone(&application);
-    ui.main_window()
-        .on_persist_provider_settings(move |tokenhub_model, tokenhub_key| {
+    ui.main_window().on_persist_provider_settings(
+        move |tokenhub_model, tokenhub_key, provider_proxy_enabled| {
             let preferences = ProviderPreferences {
                 tokenhub_model: tokenhub_model.to_string(),
             };
             match settings_application.save_provider_settings(preferences, tokenhub_key.as_str()) {
                 Ok(()) => {
+                    let network = settings_application.network_preferences();
+                    let network_result =
+                        settings_application.save_network_preferences(NetworkPreferences {
+                            provider_proxy_enabled,
+                            ..network
+                        });
                     let tokenhub_model = settings_application.provider_preferences().tokenhub_model;
-                    if let Ok(tokenhub) = settings_application.provider_configuration()
+                    if network_result.is_ok()
+                        && let Ok(tokenhub) = settings_application.provider_configuration()
                         && let Some(main) = main.upgrade()
                     {
                         main.set_tokenhub_model(tokenhub_model.into());
                         main.set_tokenhub_configured(tokenhub);
                         main.set_settings_error("Provider settings saved.".into());
+                    } else if let Err(error) = network_result {
+                        set_settings_error(&main, error.to_string());
                     }
                 }
                 Err(error) => set_settings_error(&main, error.to_string()),
             }
-        });
+        },
+    );
+
+    let main = ui.main_window().as_weak();
+    let network_application = Arc::clone(&application);
+    ui.main_window().on_persist_network_settings(
+        move |proxy_address, proxy_kind, provider_enabled, update_enabled| {
+            let preferences = NetworkPreferences {
+                proxy_kind: if proxy_kind == 1 {
+                    ProxyKind::Socks5
+                } else {
+                    ProxyKind::Http
+                },
+                proxy_address: proxy_address.to_string(),
+                provider_proxy_enabled: provider_enabled,
+                update_proxy_enabled: update_enabled,
+            };
+            match network_application.save_network_preferences(preferences) {
+                Ok(()) => {
+                    if let Some(main) = main.upgrade() {
+                        main.set_settings_error("Network settings saved.".into());
+                    }
+                    "".into()
+                }
+                Err(error) => error.to_string().into(),
+            }
+        },
+    );
 
     let main = ui.main_window().as_weak();
     let test_application = Arc::clone(&application);
@@ -819,17 +867,23 @@ async fn show_captured_lookup(
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_lines)]
 fn install_update_runtime(
     ui: &UiController,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
+    application: &Arc<DesktopApplication>,
 ) -> Result<(), Box<dyn Error>> {
     let channel =
         std::env::var("LVOS_UPDATE_CHANNEL").unwrap_or_else(|_| DEFAULT_UPDATE_CHANNEL.to_owned());
     let config = GitHubUpdateConfig::lvos(channel.clone())?;
-    let service = Arc::new(GitHubUpdateService::new(
-        HttpUpdateTransport::new()?,
-        config,
-    ));
+    let network = application.network_preferences();
+    let proxy_url = if network.update_proxy_enabled {
+        network.proxy_url().map_err(|error| error.to_string())?
+    } else {
+        None
+    };
+    let transport = HttpUpdateTransport::new(proxy_url.as_deref())?;
+    let service = Arc::new(GitHubUpdateService::new(transport.clone(), config));
     let coordinator = Arc::new(UpdateCoordinator::new(
         service,
         Arc::new(NativeReleasePageOpener),
@@ -840,6 +894,8 @@ fn install_update_runtime(
 
     let manual_main = ui.main_window().as_weak();
     let manual_coordinator = Arc::clone(&coordinator);
+    let manual_transport = transport.clone();
+    let manual_application = Arc::clone(application);
     let manual_runtime = runtime.runtime_handle();
     ui.main_window().on_check_update_requested(move || {
         if let Some(main) = manual_main.upgrade() {
@@ -847,8 +903,19 @@ fn install_update_runtime(
         }
         let main = manual_main.clone();
         let coordinator = Arc::clone(&manual_coordinator);
+        let transport = manual_transport.clone();
+        let application = Arc::clone(&manual_application);
         let channel = channel.clone();
         manual_runtime.spawn(async move {
+            let network = application.network_preferences();
+            let proxy_url = if network.update_proxy_enabled {
+                network.proxy_url().ok().flatten()
+            } else {
+                None
+            };
+            if let Err(error) = transport.set_proxy_url(proxy_url.as_deref()) {
+                tracing::warn!(%error, "failed to apply update proxy settings");
+            }
             let result = coordinator.manual_check(current_unix_timestamp()).await;
             let status = match result {
                 Ok(UpdateCheckOutcome::Available(info)) => {
@@ -890,7 +957,18 @@ fn install_update_runtime(
     });
 
     let startup_main = ui.main_window().as_weak();
+    let startup_transport = transport;
+    let startup_application = Arc::clone(application);
     runtime.spawn(async move {
+        let network = startup_application.network_preferences();
+        let proxy_url = if network.update_proxy_enabled {
+            network.proxy_url().ok().flatten()
+        } else {
+            None
+        };
+        if let Err(error) = startup_transport.set_proxy_url(proxy_url.as_deref()) {
+            tracing::warn!(%error, "failed to apply update proxy settings");
+        }
         let result = coordinator.startup_check(current_unix_timestamp()).await;
         let status = match result {
             Ok(UpdateCheckOutcome::Available(info)) => Some(format!(

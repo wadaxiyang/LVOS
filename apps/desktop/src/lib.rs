@@ -16,7 +16,8 @@ mod ui_state;
 mod update;
 
 pub use application::{
-    ApplicationError, DesktopApplication, ProviderPreferences, default_server_url,
+    ApplicationError, DesktopApplication, NetworkPreferences, ProviderPreferences, ProxyKind,
+    default_server_url,
 };
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
 pub use device_identity::{DeviceIdentityError, DeviceIdentityManager};
