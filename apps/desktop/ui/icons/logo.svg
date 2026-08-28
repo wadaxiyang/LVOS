@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="28" y1="20" x2="226" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0586DB"/>
+      <stop offset="0.55" stop-color="#0067C0"/>
+      <stop offset="1" stop-color="#5146C8"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="81" y1="119" x2="218" y2="215" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#73E5F2"/>
+      <stop offset="1" stop-color="#3FC5E0"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <path d="M24 68c0-24 20-44 44-44h120c24 0 44 20 44 44v35c-40-31-91-46-146-37-25 4-46 14-62 27V68Z" fill="#fff" opacity=".10"/>
+
+  <!-- The two overlapping speech bubbles turn LVOS into a translation exchange. -->
+  <path d="M28 55c0-14 11-25 25-25h119c14 0 25 11 25 25v57c0 14-11 25-25 25H82l-25 19 5-19h-9c-14 0-25-11-25-25V55Z" fill="#F8FBFF"/>
+  <path d="M69 142c0-14 11-25 25-25h109c14 0 25 11 25 25v54c0 14-11 25-25 25h-7l4 17-23-17H94c-14 0-25-11-25-25v-54Z" fill="url(#bubble)"/>
+
+  <!-- LV -->
+  <path d="M53 56h13v46h25v12H53V56Z" fill="#075FAE"/>
+  <path d="M90 56h15l16 42 16-42h15l-23 58h-16L90 56Z" fill="#075FAE"/>
+
+  <!-- OS -->
+  <path fill-rule="evenodd" d="M105 151a28 28 0 1 1 0 56 28 28 0 0 1 0-56Zm0 12a16 16 0 1 0 0 32 16 16 0 0 0 0-32Z" fill="#123B68"/>
+  <path d="M179 158c-6-5-13-7-20-7-14 0-24 7-24 18 0 12 10 16 21 19 8 2 11 3 11 7 0 3-4 5-10 5-7 0-14-3-20-8l-7 10c7 7 17 10 27 10 15 0 25-7 25-19 0-11-9-15-21-18-8-2-11-3-11-7 0-3 3-5 9-5 5 0 10 2 14 5l6-10Z" fill="#123B68"/>
+
+  <!-- Bidirectional marks remain readable at taskbar size. -->
+  <path d="M164 78h17l-7-7 6-6 18 18-18 18-6-6 7-7h-17V78Z" fill="#41C7DE"/>
+  <path d="M91 151H74l7 7-6 6-18-18 18-18 6 6-7 7h17v10Z" fill="#F8FBFF"/>
+</svg>

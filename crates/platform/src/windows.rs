@@ -406,16 +406,7 @@ impl WindowsTray {
 
 fn tray_icon() -> Result<Icon, PlatformError> {
     const SIDE: u32 = 32;
-    let mut pixels = vec![0_u8; (SIDE * SIDE * 4) as usize];
-    for y in 4..28 {
-        for x in 4..28 {
-            let on = x == 4 || x == 27 || y == 4 || y == 27 || x == y || x + y == 31;
-            if on {
-                let offset = ((y * SIDE + x) * 4) as usize;
-                pixels[offset..offset + 4].copy_from_slice(&[49, 46, 129, 255]);
-            }
-        }
-    }
+    let pixels = include_bytes!("../assets/lvos-tray.rgba").to_vec();
     Icon::from_rgba(pixels, SIDE, SIDE).map_err(|_| PlatformError::IntegrationFailure)
 }
 

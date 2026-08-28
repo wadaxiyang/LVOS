@@ -18,53 +18,101 @@ export struct DeviceRecord {
     revoked: bool,
 }
 
-component IconButton inherits Rectangle {
-    in property <string> label;
+component SvgIconButton inherits Rectangle {
+    in property <image> icon;
     in property <string> hint;
+    in property <color> icon-color: #475569;
     callback activated;
     width: 36px;
-    height: 32px;
-    border-radius: 8px;
-    background: touch.has-hover ? #eef2ff : transparent;
+    height: 34px;
+    border-radius: 5px;
+    background: svg-touch.pressed ? #d7e7f7 : svg-touch.has-hover ? #e8f1f8 : transparent;
 
-    Text {
-        text: root.label;
-        color: #4f46e5;
-        font-size: 18px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    Image {
+        width: 18px;
+        height: 18px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.icon-color;
+        image-fit: contain;
     }
-    touch := TouchArea {
+    svg-touch := TouchArea {
         accessible-role: button;
         accessible-label: root.hint;
         clicked => { root.activated(); }
     }
 }
 
+component IconSlot inherits Rectangle {
+    in property <image> icon;
+    in property <color> icon-color: #667085;
+    in property <length> icon-size: 18px;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+
+    Image {
+        width: root.icon-size;
+        height: root.icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.icon-color;
+        image-fit: contain;
+    }
+}
+
 component RecordCard inherits Rectangle {
     in property <UiRecord> item;
     callback favorite-toggled(string);
-    height: 104px;
-    border-radius: 12px;
-    background: #ffffff;
+    height: 84px;
+    border-radius: 8px;
+    background: record-touch.has-hover ? #f7fbff : #ffffff;
     border-width: 1px;
-    border-color: #e5e7eb;
+    border-color: record-touch.has-hover ? #b8d8f2 : #e1e4e8;
+
+    record-touch := TouchArea { }
 
     HorizontalLayout {
-        padding: 16px;
+        padding-left: 18px;
+        padding-right: 12px;
+        padding-top: 9px;
+        padding-bottom: 9px;
         spacing: 14px;
-        VerticalLayout {
-            spacing: 7px;
-            Text { text: item.source; color: #111827; font-size: 16px; font-weight: 600; overflow: elide; }
-            Text { text: item.translation; color: #374151; font-size: 14px; overflow: elide; }
-            Text {
-                text: (item.count > 1 ? "◷  " + item.count : "") + (item.metadata != "" ? "    " + item.metadata : "");
-                color: #9ca3af;
-                font-size: 12px;
+        Rectangle {
+            width: 36px;
+            height: 66px;
+            background: transparent;
+            Rectangle {
+                width: 36px;
+                height: 36px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 8px;
+                background: #e9f3fb;
+                Text {
+                    text: "Aa";
+                    color: #0067c0;
+                    font-size: 16px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
-        IconButton {
-            label: item.favorite ? "★" : "☆";
+        VerticalLayout {
+            spacing: 5px;
+            Text { text: item.source; color: #202020; font-size: 15px; font-weight: 600; overflow: elide; }
+            Text { text: item.translation; color: #515151; font-size: 13px; overflow: elide; }
+            Text {
+                text: (item.count > 1 ? item.count + " lookups" : "1 lookup") + (item.metadata != "" ? "   ·   " + item.metadata : "");
+                color: #808080;
+                font-size: 11px;
+            }
+        }
+        SvgIconButton {
+            icon: item.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
+            icon-color: item.favorite ? #d97706 : #667085;
             hint: item.favorite ? "Remove from Favorites" : "Add to Favorites";
             activated => { root.favorite-toggled(item.key); }
         }
@@ -73,6 +121,7 @@ component RecordCard inherits Rectangle {
 
 export component QuickLookupPopup inherits Window {
     title: "LVOS Lookup Card";
+    icon: @image-url("icons/logo.svg");
     width: root.popup-width;
     height: root.popup-height;
     background: transparent;
@@ -97,13 +146,13 @@ export component QuickLookupPopup inherits Window {
     callback dismiss-requested;
 
     card := Rectangle {
-        border-radius: 16px;
-        background: #fbfbfe;
+        border-radius: 8px;
+        background: #ffffff;
         border-width: 1px;
-        border-color: #d8dce8;
-        drop-shadow-blur: 18px;
-        drop-shadow-color: #33000000;
-        drop-shadow-offset-y: 6px;
+        border-color: #d9d9d9;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #26000000;
+        drop-shadow-offset-y: 4px;
 
         TouchArea {
             pointer-event(event) => {
@@ -122,71 +171,141 @@ export component QuickLookupPopup inherits Window {
         }
 
         VerticalLayout {
-            padding: 18px;
-            spacing: 12px;
-            HorizontalLayout {
-                spacing: 10px;
-                Text {
-                    text: root.source-text;
-                    color: #111827;
-                    font-size: 17px;
-                    font-weight: 600;
-                    width: parent.width - 52px;
-                    wrap: no-wrap;
-                    overflow: elide;
-                }
-                IconButton {
-                    label: root.favorite ? "★" : "☆";
-                    hint: root.favorite ? "Remove from Favorites" : "Add to Favorites";
-                    activated => { root.interaction-started(); root.favorite-toggled(); }
-                }
-            }
+            spacing: 0px;
 
-            if root.loading: HorizontalLayout {
-                alignment: center;
-                Spinner { width: 22px; height: 22px; }
-                Text { text: "Translating…"; color: #6b7280; }
-            }
-
-            if !root.loading && !root.error-visible: ScrollView {
-                vertical-stretch: 1;
-                horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
-                VerticalLayout {
-                    width: root.popup-width - 52px;
-                    Text {
-                        text: root.translated-text;
-                        color: #273247;
-                        width: root.popup-width - 52px;
-                        font-size: 16px;
-                        wrap: word-wrap;
-                        overflow: clip;
+            Rectangle {
+                height: 52px;
+                background: transparent;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    IconSlot {
+                        width: 24px;
+                        height: 50px;
+                        icon: @image-url("icons/translate.svg");
+                        icon-size: 18px;
+                        icon-color: #0067c0;
+                    }
+                    VerticalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 7px;
+                        spacing: 1px;
+                        Text {
+                            text: root.source-text;
+                            color: #202020;
+                            font-size: 15px;
+                            font-weight: 600;
+                            wrap: no-wrap;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "QUICK LOOKUP";
+                            color: #707070;
+                            font-size: 9px;
+                            letter-spacing: 0.7px;
+                        }
+                    }
+                    SvgIconButton {
+                        width: 36px;
+                        height: 50px;
+                        icon: root.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
+                        icon-color: root.favorite ? #d97706 : #667085;
+                        hint: root.favorite ? "Remove from Favorites" : "Add to Favorites";
+                        activated => { root.interaction-started(); root.favorite-toggled(); }
                     }
                 }
             }
 
-            if root.error-visible: Rectangle {
-                background: #fff5f5;
-                border-radius: 10px;
-                height: 66px;
-                VerticalLayout {
-                    padding: 10px;
-                    spacing: 4px;
-                    Text { text: root.error-title; color: #991b1b; font-weight: 600; }
-                    Text { text: root.error-detail; color: #7f1d1d; font-size: 12px; overflow: elide; }
+            Rectangle { height: 1px; background: #ececec; }
+
+            Rectangle {
+                vertical-stretch: 1;
+                background: #ffffff;
+
+                if root.loading: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 10px;
+                    Spinner { width: 22px; height: 100%; }
+                    Text { text: "Translating…"; color: #5f5f5f; vertical-alignment: center; }
+                }
+
+                if !root.loading && !root.error-visible: ScrollView {
+                    x: 16px;
+                    y: 13px;
+                    width: parent.width - 32px;
+                    height: parent.height - 24px;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+                    VerticalLayout {
+                        width: parent.width;
+                        Text {
+                            text: root.translated-text;
+                            color: #323130;
+                            width: parent.width;
+                            font-size: 15px;
+                            wrap: word-wrap;
+                            overflow: clip;
+                        }
+                    }
+                }
+
+                if root.error-visible: Rectangle {
+                    x: 14px;
+                    y: 10px;
+                    width: parent.width - 28px;
+                    height: parent.height - 18px;
+                    background: #fff4f4;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #f1c7c7;
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 8px;
+                        padding-bottom: 7px;
+                        spacing: 3px;
+                        Text { text: root.error-title; color: #a4262c; font-size: 12px; font-weight: 600; }
+                        Text { text: root.error-detail; color: #6e2c2c; font-size: 11px; overflow: elide; }
+                    }
                 }
             }
 
-            HorizontalLayout {
-                alignment: space-between;
-                Text {
-                    text: root.effective-count > 1 ? "◷  " + root.effective-count : "";
-                    color: #9ca3af;
-                    font-size: 12px;
-                }
-                IconButton {
-                    label: "↻";
-                    hint: "Refresh translation";
-                    activated => { root.interaction-started(); root.refresh-requested(); }
+            Rectangle { height: 1px; background: #ececec; }
+
+            Rectangle {
+                height: 41px;
+                background: #fafafa;
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 8px;
+                        alignment: space-between;
+                        if root.effective-count > 1: HorizontalLayout {
+                            spacing: 6px;
+                            IconSlot {
+                                width: 16px;
+                                height: 39px;
+                                icon: @image-url("icons/history.svg");
+                                icon-size: 14px;
+                                icon-color: #777777;
+                            }
+                            Text {
+                                text: root.effective-count + " lookups";
+                                color: #707070;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                        }
+                        SvgIconButton {
+                            width: 36px;
+                            height: 39px;
+                            icon: @image-url("icons/refresh.svg");
+                            icon-color: #0067c0;
+                            hint: "Refresh translation";
+                            activated => { root.interaction-started(); root.refresh-requested(); }
+                        }
+                    }
                 }
             }
         }
@@ -195,6 +314,7 @@ export component QuickLookupPopup inherits Window {
 
 export component PermissionWindow inherits Window {
     title: "LVOS Permissions";
+    icon: @image-url("icons/logo.svg");
     width: 520px;
     height: 300px;
     background: #f8f9fc;
@@ -231,50 +351,175 @@ export component PermissionWindow inherits Window {
     }
 }
 
-component SidebarButton inherits Rectangle {
+component FluentSidebarItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> collapsed;
+    in property <color> accent: #0067c0;
+    callback activated;
+    height: 40px;
+    border-radius: 5px;
+    background: selected ? #e5e5e5 : nav-touch.has-hover ? #ebebeb : transparent;
+
+    if selected: Rectangle {
+        x: 0px;
+        y: 9px;
+        width: 3px;
+        height: 22px;
+        border-radius: 2px;
+        background: root.accent;
+    }
+    HorizontalLayout {
+        padding-left: 13px;
+        padding-right: 10px;
+        spacing: 12px;
+        IconSlot {
+            height: 40px;
+            icon: root.icon;
+            icon-size: 20px;
+            icon-color: root.selected || nav-touch.has-hover ? root.accent : #5f6368;
+        }
+        if !root.collapsed: Text {
+            text: root.label;
+            color: root.selected ? #1f1f1f : #5f5f5f;
+            font-size: 14px;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    nav-touch := TouchArea {
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => { root.activated(); }
+    }
+}
+
+component SettingsSidebarItem inherits Rectangle {
+    in property <image> icon;
     in property <string> label;
     in property <bool> selected;
     callback activated;
-    height: 42px;
-    border-radius: 9px;
-    background: selected ? #e0e7ff : touch.has-hover ? #eef2f7 : transparent;
-    Text {
-        x: 14px;
-        width: parent.width - 28px;
-        text: root.label;
-        color: selected ? #3730a3 : #4b5563;
-        font-weight: selected ? 600 : 400;
-        vertical-alignment: center;
+    height: 38px;
+    border-radius: 5px;
+    background: selected ? #e5f1fb : settings-touch.has-hover ? #f0f0f0 : transparent;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 9px;
+        spacing: 9px;
+        IconSlot {
+            width: 20px;
+            height: 38px;
+            icon: root.icon;
+            icon-size: 17px;
+            icon-color: root.selected ? #0067c0 : #667085;
+        }
+        Text {
+            text: root.label;
+            color: root.selected ? #005a9e : #505050;
+            font-size: 13px;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+        }
     }
-    touch := TouchArea { clicked => { root.activated(); } }
+    settings-touch := TouchArea { clicked => { root.activated(); } }
 }
 
-component SectionHeader inherits VerticalLayout {
+component PageHeader inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
-    spacing: 5px;
-    Text { text: root.title; color: #111827; font-size: 26px; font-weight: 700; }
-    Text { text: root.subtitle; color: #6b7280; font-size: 13px; }
+    height: 48px;
+    vertical-stretch: 0;
+    spacing: 4px;
+    Text { text: root.title; color: #202020; font-size: 24px; font-weight: 600; }
+    Text { text: root.subtitle; color: #6b6b6b; font-size: 12px; }
 }
 
-component SettingsCard inherits Rectangle {
-    in property <string> title;
-    height: 190px;
-    border-radius: 14px;
+component FluentCard inherits Rectangle {
+    in property <length> card-height: 190px;
+    height: card-height;
+    border-radius: 8px;
     background: #ffffff;
     border-width: 1px;
-    border-color: #e5e7eb;
+    border-color: #e1e4e8;
+}
+
+component SearchBox inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    callback edited(string);
+    height: 38px;
+    border-radius: 5px;
+    background: #ffffff;
+    border-width: 1px;
+    border-color: search-input.has-focus ? #0067c0 : #d7d7d7;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 8px;
+        IconSlot {
+            width: 20px;
+            height: 38px;
+            icon: @image-url("icons/search.svg");
+            icon-size: 17px;
+            icon-color: #6b7280;
+        }
+        search-input := LineEdit {
+            text <=> root.text;
+            placeholder-text: root.placeholder;
+            edited => { root.edited(self.text); }
+        }
+    }
+}
+
+component ToolbarButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> danger: false;
+    callback activated;
+    width: 132px;
+    height: 36px;
+    border-radius: 5px;
+    background: toolbar-touch.pressed ? (danger ? #f9dddd : #dcecf8) : toolbar-touch.has-hover ? (danger ? #fff0f0 : #eef6fc) : #ffffff;
+    border-width: 1px;
+    border-color: danger ? #e6b8b8 : #d4d7da;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        IconSlot { width: 18px; height: 36px; icon: root.icon; icon-size: 16px; icon-color: root.danger ? #c42b1c : #4f5b66; }
+        Text { text: root.label; color: root.danger ? #a4262c : #323130; font-size: 12px; vertical-alignment: center; }
+    }
+    toolbar-touch := TouchArea { clicked => { root.activated(); } }
+}
+
+component StatusChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> good: false;
+    width: chip-label.preferred-width + 22px;
+    height: 26px;
+    border-radius: 13px;
+    background: good ? #e8f5ed : #f2f2f2;
+    chip-label := Text {
+        text: root.text;
+        color: root.good ? #107c10 : #616161;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
 }
 
 export component MainWindow inherits Window {
     title: "LVOS";
-    width: 980px;
-    height: 680px;
-    background: #f6f7fb;
+    icon: @image-url("icons/logo.svg");
+    width: 960px;
+    height: 640px;
+    background: #f3f3f3;
     init => { Palette.color-scheme = ColorScheme.light; }
 
     in-out property <int> active-page: 0;
     in-out property <int> settings-page: 0;
+    in-out property <bool> sidebar-collapsed: false;
     in-out property <string> search-text;
     in property <[UiRecord]> history-records;
     in property <[UiRecord]> favorite-records;
@@ -315,234 +560,413 @@ export component MainWindow inherits Window {
     callback update-global-hotkey(string) -> string;
     callback update-start-at-login(bool) -> string;
     callback update-launch-minimized(bool) -> string;
+
     HorizontalLayout {
+        spacing: 0px;
         Rectangle {
-            width: 220px;
-            background: #eef0f6;
+            width: root.sidebar-collapsed ? 60px : 204px;
+            background: #f3f3f3;
             border-width: 0px;
+            animate width { duration: 180ms; easing: ease-out-quad; }
+
             VerticalLayout {
-                padding: 18px;
-                spacing: 7px;
-                Text { text: "LVOS"; color: #312e81; font-size: 23px; font-weight: 700; height: 48px; }
-                SidebarButton { label: "History"; selected: root.active-page == 0; activated => { root.active-page = 0; } }
-                SidebarButton { label: "Favorites"; selected: root.active-page == 1; activated => { root.active-page = 1; } }
-                SidebarButton { label: "Settings"; selected: root.active-page == 2; activated => { root.active-page = 2; } }
+                padding-left: 7px;
+                padding-right: 7px;
+                padding-top: 10px;
+                padding-bottom: 12px;
+                spacing: 5px;
+
+                Rectangle {
+                    height: 46px;
+                    HorizontalLayout {
+                        padding-left: 11px;
+                        spacing: 11px;
+                        Rectangle {
+                            width: 28px;
+                            height: 46px;
+                            background: transparent;
+                            Image {
+                                width: 28px;
+                                height: 28px;
+                                y: (parent.height - self.height) / 2;
+                                source: @image-url("icons/logo.svg");
+                                image-fit: contain;
+                            }
+                        }
+                        if !root.sidebar-collapsed: VerticalLayout {
+                            spacing: 0px;
+                            Text { text: "LVOS"; color: #202020; font-size: 17px; font-weight: 600; vertical-alignment: bottom; }
+                            Text { text: "Vocabulary workspace"; color: #777777; font-size: 9px; vertical-alignment: top; }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 38px;
+                    border-radius: 5px;
+                    background: menu-touch.has-hover ? #e8e8e8 : transparent;
+                    Image {
+                        x: 15px;
+                        y: 9px;
+                        width: 20px;
+                        height: 20px;
+                        source: @image-url("icons/menu.svg");
+                        colorize: #4f5b66;
+                        image-fit: contain;
+                    }
+                    menu-touch := TouchArea { clicked => { root.sidebar-collapsed = !root.sidebar-collapsed; } }
+                }
+
+                FluentSidebarItem {
+                    icon: @image-url("icons/history.svg");
+                    label: "History";
+                    selected: root.active-page == 0;
+                    collapsed: root.sidebar-collapsed;
+                    accent: #0078d4;
+                    activated => { root.active-page = 0; }
+                }
+                FluentSidebarItem {
+                    icon: @image-url("icons/star.svg");
+                    label: "Favorites";
+                    selected: root.active-page == 1;
+                    collapsed: root.sidebar-collapsed;
+                    accent: #d97706;
+                    activated => { root.active-page = 1; }
+                }
+
                 Rectangle { vertical-stretch: 1; }
-                Text { text: "Local-first desktop"; color: #9ca3af; font-size: 11px; }
+
+                if !root.sidebar-collapsed: Rectangle {
+                    height: 58px;
+                    border-radius: 7px;
+                    background: #e9f3fb;
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 9px;
+                        IconSlot { width: 18px; height: 38px; icon: @image-url("icons/shield.svg"); icon-size: 18px; icon-color: #107c10; }
+                        VerticalLayout {
+                            spacing: 1px;
+                            Text { text: "Local-first"; color: #274b35; font-size: 11px; font-weight: 600; }
+                            Text { text: "History stays on this device"; color: #52705c; font-size: 9px; }
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #dedede; }
+                FluentSidebarItem {
+                    icon: @image-url("icons/settings.svg");
+                    label: "Settings";
+                    selected: root.active-page == 2;
+                    collapsed: root.sidebar-collapsed;
+                    accent: #5b5fc7;
+                    activated => { root.active-page = 2; }
+                }
             }
         }
 
         Rectangle {
             horizontal-stretch: 1;
-            background: #f8f9fc;
+            background: #fbfbfb;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #e5e5e5;
 
             if root.active-page == 0: VerticalLayout {
-                padding: 30px;
-                spacing: 18px;
-                SectionHeader { title: "History"; subtitle: "Local lookup cache. Nothing here is uploaded."; }
-                LineEdit {
-                    placeholder-text: "Search English or Chinese…";
-                    text <=> root.search-text;
-                    edited => { root.history-search(self.text); }
+                padding: 22px;
+                spacing: 13px;
+                HorizontalLayout {
+                    PageHeader { title: "History"; subtitle: "Your private lookup timeline, stored only on this device."; }
+                    Rectangle { horizontal-stretch: 1; }
+                    StatusChip { text: root.history-records.length + " entries"; good: root.history-records.length > 0; }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    SearchBox {
+                        horizontal-stretch: 1;
+                        placeholder: "Search English or Chinese…";
+                        text <=> root.search-text;
+                        edited(value) => { root.history-search(value); }
+                    }
+                    ToolbarButton {
+                        icon: @image-url("icons/trash.svg");
+                        label: "Clear history";
+                        danger: true;
+                        activated => { root.clear-history-requested(); }
+                    }
                 }
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        spacing: 10px;
+                        spacing: 9px;
                         for item[index] in root.history-records: RecordCard {
                             item: item;
                             favorite-toggled(key) => { root.favorite-toggled(key, item.favorite); }
                         }
-                        if root.history-records.length == 0: Text { text: "No History yet."; color: #9ca3af; horizontal-alignment: center; }
+                        if root.history-records.length == 0: Rectangle {
+                            height: 240px;
+                            border-radius: 8px;
+                            background: #ffffff;
+                            border-width: 1px;
+                            border-color: #e1e4e8;
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 12px;
+                                Rectangle {
+                                    height: 48px;
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        IconSlot { width: 48px; height: 48px; icon: @image-url("icons/history.svg"); icon-size: 42px; icon-color: #8bb8dc; }
+                                    }
+                                }
+                                Text { text: "No lookups yet"; color: #303030; font-size: 16px; font-weight: 600; horizontal-alignment: center; }
+                                Text { text: "Select English text and press your global shortcut to begin."; color: #777777; font-size: 12px; horizontal-alignment: center; }
+                            }
+                        }
                     }
-                }
-                HorizontalLayout {
-                    alignment: end;
-                    Button { text: "Clear History"; clicked => { root.clear-history-requested(); } }
                 }
             }
 
             if root.active-page == 1: VerticalLayout {
-                padding: 30px;
-                spacing: 18px;
-                SectionHeader { title: "Favorites"; subtitle: "Independent from History and available offline."; }
-                LineEdit {
-                    placeholder-text: "Search Favorites…";
+                padding: 22px;
+                spacing: 13px;
+                HorizontalLayout {
+                    PageHeader { title: "Favorites"; subtitle: "A focused vocabulary collection that remains available offline."; }
+                    Rectangle { horizontal-stretch: 1; }
+                    StatusChip { text: root.favorite-records.length + " saved"; good: root.favorite-records.length > 0; }
+                }
+                SearchBox {
+                    placeholder: "Search favorites…";
                     text <=> root.search-text;
-                    edited => { root.favorites-search(self.text); }
+                    edited(value) => { root.favorites-search(value); }
                 }
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        spacing: 10px;
+                        spacing: 9px;
                         for item[index] in root.favorite-records: RecordCard {
                             item: item;
                             favorite-toggled(key) => { root.favorite-toggled(key, true); }
                         }
-                        if root.favorite-records.length == 0: Text { text: "No Favorites yet."; color: #9ca3af; horizontal-alignment: center; }
+                        if root.favorite-records.length == 0: Rectangle {
+                            height: 240px;
+                            border-radius: 8px;
+                            background: #ffffff;
+                            border-width: 1px;
+                            border-color: #e1e4e8;
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 12px;
+                                Rectangle {
+                                    height: 48px;
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        IconSlot { width: 48px; height: 48px; icon: @image-url("icons/star.svg"); icon-size: 42px; icon-color: #d9a441; }
+                                    }
+                                }
+                                Text { text: "Nothing saved yet"; color: #303030; font-size: 16px; font-weight: 600; horizontal-alignment: center; }
+                                Text { text: "Use the star action on a lookup to keep it here."; color: #777777; font-size: 12px; horizontal-alignment: center; }
+                            }
+                        }
                     }
                 }
             }
 
-            if root.active-page == 2: HorizontalLayout {
-                Rectangle {
-                    width: 170px;
-                    background: #f1f3f8;
-                    VerticalLayout {
-                        padding: 14px;
-                        spacing: 4px;
-                        for label[index] in ["General", "Translation", "Account", "Sync", "Devices", "History", "Data", "Update"]: SidebarButton {
-                            label: label;
-                            selected: root.settings-page == index;
-                            activated => { root.settings-page = index; }
+            if root.active-page == 2: VerticalLayout {
+                padding: 22px;
+                spacing: 13px;
+                PageHeader { title: "Settings"; subtitle: "Configure desktop behavior, translation, synchronization, and data."; }
+                HorizontalLayout {
+                    spacing: 14px;
+                    Rectangle {
+                        width: 172px;
+                        border-radius: 8px;
+                        background: #f7f7f7;
+                        border-width: 1px;
+                        border-color: #e1e4e8;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 3px;
+                            SettingsSidebarItem { icon: @image-url("icons/general.svg"); label: "General"; selected: root.settings-page == 0; activated => { root.settings-page = 0; } }
+                            SettingsSidebarItem { icon: @image-url("icons/translate.svg"); label: "Translation"; selected: root.settings-page == 1; activated => { root.settings-page = 1; } }
+                            SettingsSidebarItem { icon: @image-url("icons/account.svg"); label: "Account"; selected: root.settings-page == 2; activated => { root.settings-page = 2; } }
+                            SettingsSidebarItem { icon: @image-url("icons/sync.svg"); label: "Sync"; selected: root.settings-page == 3; activated => { root.settings-page = 3; } }
+                            SettingsSidebarItem { icon: @image-url("icons/devices.svg"); label: "Devices"; selected: root.settings-page == 4; activated => { root.settings-page = 4; } }
+                            SettingsSidebarItem { icon: @image-url("icons/history.svg"); label: "History"; selected: root.settings-page == 5; activated => { root.settings-page = 5; } }
+                            SettingsSidebarItem { icon: @image-url("icons/data.svg"); label: "Data"; selected: root.settings-page == 6; activated => { root.settings-page = 6; } }
+                            SettingsSidebarItem { icon: @image-url("icons/update.svg"); label: "Update"; selected: root.settings-page == 7; activated => { root.settings-page = 7; } }
+                            Rectangle { vertical-stretch: 1; }
+                            Text { text: "LVOS 0.1.5"; color: #929292; font-size: 9px; horizontal-alignment: center; }
                         }
                     }
-                }
 
-                ScrollView {
-                    horizontal-stretch: 1;
-                    VerticalLayout {
-                        padding: 30px;
-                        spacing: 18px;
+                    ScrollView {
+                        horizontal-stretch: 1;
+                        VerticalLayout {
+                            spacing: 14px;
 
-                        if root.settings-page == 0: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "General"; subtitle: "Desktop behavior and launch preferences."; }
-                            SettingsCard {
-                                title: "General";
-                                VerticalLayout { padding: 18px; spacing: 12px;
-                                    Text { text: "Global hotkey"; font-weight: 600; }
-                                    hotkey := LineEdit { text <=> root.global-hotkey; }
-                                    if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
-                                    HorizontalLayout { alignment: end;
-                                        Button { text: "Save Hotkey"; clicked => {
-                                            root.settings-error = root.update-global-hotkey(hotkey.text);
-                                        } }
-                                    }
-                                    login-start := Switch {
-                                        text: "Start at login";
-                                        checked <=> root.start-at-login;
-                                        toggled => { root.settings-error = root.update-start-at-login(self.checked); }
-                                    }
-                                    minimized := Switch {
-                                        text: "Launch minimized to tray";
-                                        checked <=> root.launch-minimized;
-                                        toggled => { root.settings-error = root.update-launch-minimized(self.checked); }
-                                    }
-                                    Text { text: "Network Proxy"; font-weight: 600; }
-                                    Text { text: "Proxy type"; color: #4b5563; }
-                                    proxy-type := ComboBox {
-                                        model: ["HTTP", "SOCKS5"];
-                                        current-index <=> root.proxy-kind;
-                                    }
-                                    Text { text: "Proxy address (host:port)"; color: #4b5563; }
-                                    proxy-address := LineEdit { text <=> root.proxy-address; placeholder-text: "127.0.0.1:7890"; }
-                                    Button { text: "Save Network Settings"; clicked => {
-                                        root.settings-error = root.persist-network-settings(
-                                            proxy-address.text,
-                                            proxy-type.current-index,
-                                            root.provider-proxy-enabled,
-                                            root.update-proxy-enabled
-                                        );
-                                    } }
-                                }
-                            }
-                        }
-
-                        if root.settings-page == 1: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Translation"; subtitle: "Tencent TokenHub model and user-owned credential."; }
-                            SettingsCard {
-                                height: 300px;
-                                VerticalLayout { padding: 18px; spacing: 11px;
-                                    Text { text: "Provider: Tencent TokenHub"; font-weight: 600; }
-                                    Text { text: "Tencent TokenHub Model"; font-weight: 600; }
-                                    tokenhub-model := LineEdit { text <=> root.tokenhub-model; placeholder-text: "hy-mt2-lite"; }
-                                    Text { text: "Tencent TokenHub API Key"; font-weight: 600; }
-                                    tokenhub-key := LineEdit { placeholder-text: "Stored in OS Credential Store"; input-type: InputType.password; }
-                                    provider-proxy := Switch {
-                                        text: "Use proxy for Provider requests";
-                                        checked <=> root.provider-proxy-enabled;
-                                    }
-                                    if root.settings-error != "": Text { text: root.settings-error; color: #b91c1c; }
-                                    HorizontalLayout { alignment: end; spacing: 8px;
-                                        Button { text: "Test TokenHub"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
-                                        Button { text: "Save"; clicked => {
-                                            root.settings-error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
-                                            if (root.settings-error == "") {
-                                                root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked);
-                                                tokenhub-key.text = "";
-                                            }
-                                        } }
+                            if root.settings-page == 0: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "General"; subtitle: "Desktop behavior and network defaults."; }
+                                FluentCard {
+                                    card-height: 420px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 11px;
+                                        Text { text: "Global shortcut"; color: #303030; font-size: 13px; font-weight: 600; }
+                                        Text { text: "Press this shortcut after selecting English text in another app."; color: #777777; font-size: 11px; }
+                                        hotkey := LineEdit { text <=> root.global-hotkey; }
+                                        HorizontalLayout { alignment: end; Button { text: "Save shortcut"; clicked => { root.settings-error = root.update-global-hotkey(hotkey.text); } } }
+                                        Rectangle { height: 1px; background: #ececec; }
+                                        login-start := Switch { text: "Start LVOS when I sign in"; checked <=> root.start-at-login; toggled => { root.settings-error = root.update-start-at-login(self.checked); } }
+                                        minimized := Switch { text: "Launch minimized to the system tray"; checked <=> root.launch-minimized; toggled => { root.settings-error = root.update-launch-minimized(self.checked); } }
+                                        Rectangle { height: 1px; background: #ececec; }
+                                        Text { text: "Network proxy"; color: #303030; font-size: 13px; font-weight: 600; }
+                                        HorizontalLayout {
+                                            spacing: 10px;
+                                            proxy-type := ComboBox { width: 150px; model: ["HTTP", "SOCKS5"]; current-index <=> root.proxy-kind; }
+                                            proxy-address := LineEdit { horizontal-stretch: 1; text <=> root.proxy-address; placeholder-text: "127.0.0.1:7890"; }
+                                            Button { text: "Save network"; clicked => { root.settings-error = root.persist-network-settings(proxy-address.text, proxy-type.current-index, root.provider-proxy-enabled, root.update-proxy-enabled); } }
+                                        }
+                                        if root.settings-error != "": Text { text: root.settings-error; color: #a4262c; font-size: 11px; wrap: word-wrap; }
                                     }
                                 }
                             }
-                        }
 
-                        if root.settings-page == 2: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Account"; subtitle: "Local lookup remains available without login."; }
-                            SettingsCard { height: 350px;
-                                VerticalLayout { padding: 18px; spacing: 10px;
-                                    Text { text: "Server URL"; font-weight: 600; }
-                                    server := LineEdit { text: root.server-url; }
-                                    Text { text: "Username"; font-weight: 600; }
-                                    user := LineEdit { text: root.username; }
-                                    Text { text: "Password"; font-weight: 600; }
-                                    password := LineEdit { input-type: InputType.password; placeholder-text: "Never stored"; }
-                                    HorizontalLayout { alignment: end; spacing: 8px;
-                                        Button { text: "Login"; clicked => { root.login-requested(server.text, user.text, password.text); } }
-                                        Button { text: "Logout"; clicked => { root.logout-requested(); } }
-                                    }
-                                    Button { text: "Replace Revoked Device Identity…"; clicked => { root.regenerate-device-identity-requested(); } }
-                                }
-                            }
-                        }
-
-                        if root.settings-page == 3: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Sync"; subtitle: "Account-specific synchronization diagnostics."; }
-                            SettingsCard { height: 250px;
-                                VerticalLayout { padding: 18px; spacing: 12px;
-                                    Text { text: "Status    " + root.sync-status; font-weight: 600; }
-                                    Text { text: "Server    " + root.server-url; color: #6b7280; }
-                                    Text { text: "Current Device    " + root.current-device; color: #6b7280; }
-                                    HorizontalLayout { spacing: 8px;
-                                        Button { text: "Manual Sync"; clicked => { root.manual-sync-requested(); } }
-                                        Button { text: "Test Connection"; clicked => { root.test-connection-requested(); } }
+                            if root.settings-page == 1: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "Translation"; subtitle: "Tencent TokenHub model and your private credential."; }
+                                FluentCard {
+                                    card-height: 330px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 10px;
+                                        HorizontalLayout {
+                                            Text { text: "Tencent TokenHub"; color: #303030; font-size: 14px; font-weight: 600; }
+                                            Rectangle { horizontal-stretch: 1; }
+                                            StatusChip { text: root.tokenhub-configured ? "Configured" : "Setup required"; good: root.tokenhub-configured; }
+                                        }
+                                        Text { text: "Model"; color: #555555; font-size: 12px; }
+                                        tokenhub-model := LineEdit { text <=> root.tokenhub-model; placeholder-text: "hy-mt2-lite"; }
+                                        Text { text: "API key"; color: #555555; font-size: 12px; }
+                                        tokenhub-key := LineEdit { placeholder-text: "Stored securely in Windows Credential Manager"; input-type: InputType.password; }
+                                        provider-proxy := Switch { text: "Use the configured proxy for provider requests"; checked <=> root.provider-proxy-enabled; }
+                                        if root.settings-error != "": Text { text: root.settings-error; color: #a4262c; font-size: 11px; }
+                                        HorizontalLayout {
+                                            alignment: end;
+                                            spacing: 8px;
+                                            Button { text: "Test connection"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
+                                            Button { text: "Save"; clicked => {
+                                                root.settings-error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
+                                                if root.settings-error == "" { root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked); tokenhub-key.text = ""; }
+                                            } }
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if root.settings-page == 4: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Devices"; subtitle: "Revoke other installations or inspect status."; }
-                            for device[index] in root.devices: Rectangle {
-                                height: 82px; background: #ffffff; border-radius: 12px; border-width: 1px; border-color: #e5e7eb;
-                                HorizontalLayout { padding: 14px; spacing: 12px;
-                                    VerticalLayout { Text { text: device.name + (device.current ? "  Current" : ""); font-weight: 600; } Text { text: device.platform + " · " + device.last-seen; color: #6b7280; } }
-                                    Button { text: device.revoked ? "Revoked" : "Revoke"; enabled: !device.revoked; clicked => { root.revoke-device-requested(device.id); } }
+                            if root.settings-page == 2: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "Account"; subtitle: "Sign in only when you want private cross-device synchronization."; }
+                                FluentCard {
+                                    card-height: 350px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 10px;
+                                        Text { text: "Server URL"; color: #555555; font-size: 12px; }
+                                        server := LineEdit { text: root.server-url; }
+                                        Text { text: "Username"; color: #555555; font-size: 12px; }
+                                        user := LineEdit { text: root.username; }
+                                        Text { text: "Password"; color: #555555; font-size: 12px; }
+                                        password := LineEdit { input-type: InputType.password; placeholder-text: "Never stored"; }
+                                        HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Sign out"; clicked => { root.logout-requested(); } } Button { text: "Sign in"; clicked => { root.login-requested(server.text, user.text, password.text); } } }
+                                        Rectangle { height: 1px; background: #ececec; }
+                                        Button { text: "Replace revoked device identity…"; clicked => { root.regenerate-device-identity-requested(); } }
+                                    }
                                 }
                             }
-                        }
 
-                        if root.settings-page == 5: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "History"; subtitle: "History is retained until you explicitly clear it."; }
-                            SettingsCard { height: 150px; VerticalLayout { padding: 18px; spacing: 14px; Text { text: "Clear local History cache"; font-weight: 600; } Text { text: "Favorites and their learning statistics are preserved."; color: #6b7280; } Button { text: "Clear History"; clicked => { root.clear-history-requested(); } } } }
-                        }
+                            if root.settings-page == 3: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "Sync"; subtitle: "Inspect the current profile and request synchronization."; }
+                                FluentCard {
+                                    card-height: 230px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 13px;
+                                        HorizontalLayout { Text { text: "Status"; color: #666666; } Rectangle { horizontal-stretch: 1; } StatusChip { text: root.sync-status; good: root.sync-status == "Connected"; } }
+                                        HorizontalLayout { Text { text: "Server"; color: #666666; } Rectangle { horizontal-stretch: 1; } Text { text: root.server-url; color: #303030; } }
+                                        HorizontalLayout { Text { text: "Current device"; color: #666666; } Rectangle { horizontal-stretch: 1; } Text { text: root.current-device; color: #303030; } }
+                                        Rectangle { height: 1px; background: #ececec; }
+                                        HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Test connection"; clicked => { root.test-connection-requested(); } } Button { text: "Sync now"; clicked => { root.manual-sync-requested(); } } }
+                                    }
+                                }
+                            }
 
-                        if root.settings-page == 6: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Data"; subtitle: "Portable data excludes credentials and installation identity."; }
-                            SettingsCard { height: 160px; VerticalLayout { padding: 18px; spacing: 12px; Button { text: "Export Data"; clicked => { root.export-data-requested(); } } Button { text: "Import Data"; clicked => { root.import-data-requested(); } } } }
-                        }
+                            if root.settings-page == 4: VerticalLayout {
+                                spacing: 12px;
+                                PageHeader { title: "Devices"; subtitle: "Review and revoke installations associated with this account."; }
+                                for device[index] in root.devices: Rectangle {
+                                    height: 76px;
+                                    border-radius: 8px;
+                                    background: #ffffff;
+                                    border-width: 1px;
+                                    border-color: #e1e4e8;
+                                    HorizontalLayout {
+                                        padding: 14px;
+                                        spacing: 12px;
+                                        IconSlot { width: 24px; height: 48px; icon: @image-url("icons/devices.svg"); icon-size: 24px; icon-color: device.current ? #0067c0 : #667085; }
+                                        VerticalLayout { spacing: 4px; Text { text: device.name + (device.current ? "  ·  Current" : ""); color: #303030; font-weight: 600; } Text { text: device.platform + "  ·  " + device.last-seen; color: #777777; font-size: 11px; } }
+                                        Button { text: device.revoked ? "Revoked" : "Revoke"; enabled: !device.revoked; clicked => { root.revoke-device-requested(device.id); } }
+                                    }
+                                }
+                                if root.devices.length == 0: FluentCard { card-height: 120px; Text { text: "No synchronized devices to display."; color: #777777; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
 
-                        if root.settings-page == 7: VerticalLayout {
-                            spacing: 18px;
-                            SectionHeader { title: "Update"; subtitle: "Unsigned releases are downloaded manually from GitHub Releases."; }
-                            SettingsCard { height: 210px; VerticalLayout { padding: 18px; spacing: 12px; Text { text: root.update-status; color: #4b5563; } update-proxy := Switch { text: "Use proxy for update checks"; checked <=> root.update-proxy-enabled; } HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Save Network"; clicked => { root.settings-error = root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked); } } Button { text: "Check for Updates"; clicked => { root.check-update-requested(); } } } } }
+                            if root.settings-page == 5: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "History"; subtitle: "Manage the private lookup cache on this device."; }
+                                FluentCard {
+                                    card-height: 170px;
+                                    HorizontalLayout {
+                                        padding: 20px;
+                                        spacing: 16px;
+                                        IconSlot { width: 28px; height: 130px; icon: @image-url("icons/trash.svg"); icon-size: 28px; icon-color: #c42b1c; }
+                                        VerticalLayout { spacing: 5px; Text { text: "Clear local history"; color: #303030; font-size: 14px; font-weight: 600; } Text { text: "Favorites and their learning statistics are preserved."; color: #777777; font-size: 11px; } }
+                                        Button { text: "Clear history"; clicked => { root.clear-history-requested(); } }
+                                    }
+                                }
+                            }
+
+                            if root.settings-page == 6: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "Data"; subtitle: "Move your vocabulary without exporting secrets or device identity."; }
+                                FluentCard {
+                                    card-height: 190px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 12px;
+                                        Text { text: "Portable archive"; color: #303030; font-size: 14px; font-weight: 600; }
+                                        Text { text: "Includes history and favorites. Credentials, sessions, and installation identity are excluded."; color: #777777; font-size: 11px; wrap: word-wrap; }
+                                        HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Import data"; clicked => { root.import-data-requested(); } } Button { text: "Export data"; clicked => { root.export-data-requested(); } } }
+                                    }
+                                }
+                            }
+
+                            if root.settings-page == 7: VerticalLayout {
+                                spacing: 14px;
+                                PageHeader { title: "Update"; subtitle: "Check the signed manifest and open the official release page."; }
+                                FluentCard {
+                                    card-height: 230px;
+                                    VerticalLayout {
+                                        padding: 20px;
+                                        spacing: 13px;
+                                        HorizontalLayout { IconSlot { width: 22px; height: 28px; icon: @image-url("icons/update.svg"); icon-size: 22px; icon-color: #0067c0; } Text { text: root.update-status; color: #303030; font-size: 13px; vertical-alignment: center; } }
+                                        update-proxy := Switch { text: "Use the configured proxy for update checks"; checked <=> root.update-proxy-enabled; }
+                                        Rectangle { height: 1px; background: #ececec; }
+                                        HorizontalLayout { alignment: end; spacing: 8px; Button { text: "Save network"; clicked => { root.settings-error = root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked); } } Button { text: "Check for updates"; clicked => { root.check-update-requested(); } } }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
