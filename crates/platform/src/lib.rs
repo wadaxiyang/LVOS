@@ -1,11 +1,26 @@
 //! Native platform service boundaries.
 
+use std::path::Path;
 use std::{error::Error, fmt, future::Future, pin::Pin, time::Duration};
 
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
+
+/// Atomically replaces a same-filesystem destination with a prepared file.
+///
+/// Windows replacement is routed through the native replace-existing primitive; Unix platforms
+/// use their atomic rename semantics.
+///
+/// # Errors
+/// Returns an I/O error when the operating system cannot replace the destination.
+pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    return windows::replace_file(source, destination);
+    #[cfg(not(target_os = "windows"))]
+    std::fs::rename(source, destination)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Platform {

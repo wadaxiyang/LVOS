@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, str::FromStr};
+use std::num::NonZeroUsize;
 
 use lvos_core::{ContentKey, LanguageCode, UnixTimestamp, ValidationPolicy, prepare_content};
 use lvos_sync::{
@@ -11,6 +11,10 @@ use uuid::Uuid;
 use crate::{
     Favorite, OutboxEvent, OutboxOperation, ProfileDatabase, StorageError, StoredContent,
     SyncDiagnostics, TranslationSnapshot,
+    codec::{
+        parse_content_key as parse_key, parse_outbox_operation as parse_operation,
+        sqlite_i64 as to_i64, sqlite_u64 as to_u64,
+    },
 };
 
 const MAX_REMOTE_CONTENT_CHARACTERS: usize = 16_384;
@@ -694,19 +698,6 @@ fn protocol_operation(operation: OutboxOperation) -> SyncOperation {
     }
 }
 
-fn parse_operation(value: &str) -> Result<OutboxOperation, StorageError> {
-    match value {
-        "favorite_upsert" => Ok(OutboxOperation::FavoriteUpsert),
-        "favorite_delete" => Ok(OutboxOperation::FavoriteDelete),
-        "query_stats_upsert" => Ok(OutboxOperation::QueryStatsUpsert),
-        _ => Err(StorageError::InvalidData("outbox operation")),
-    }
-}
-
-fn parse_key(value: &str) -> Result<ContentKey, StorageError> {
-    ContentKey::from_str(value).map_err(|_| StorageError::InvalidData("content key"))
-}
-
 fn mark_manual_conflict(
     transaction: &Transaction<'_>,
     key: ContentKey,
@@ -726,12 +717,4 @@ fn mark_manual_conflict(
 
 fn bounded_error(error: &str) -> &str {
     error.get(..error.len().min(512)).unwrap_or(error)
-}
-
-fn to_u64(value: i64) -> Result<u64, StorageError> {
-    u64::try_from(value).map_err(|_| StorageError::InvalidData("negative integer"))
-}
-
-fn to_i64(value: u64) -> Result<i64, StorageError> {
-    i64::try_from(value).map_err(|_| StorageError::InvalidData("integer exceeds SQLite range"))
 }

@@ -5,6 +5,7 @@ mod db_worker;
 mod device_identity;
 mod generation;
 mod lifecycle;
+mod local_store;
 mod lookup;
 mod sync_engine;
 mod sync_session;
@@ -26,6 +27,7 @@ pub use lifecycle::{
     BackgroundProfileServices, DesktopRuntime, ProfileLifecycle, RuntimeError, StartupDisposition,
     SwitchOutcome, acquire_single_instance,
 };
+pub use local_store::{LocalPreferenceStore, atomic_write};
 pub use lookup::{LookupError, LookupMode, LookupOutcome, LookupService};
 pub use sync_engine::{
     SyncEngine, SyncEngineError, SyncProfileServices, SyncRunOutcome, SyncWorker, SyncWorkerHandle,

@@ -19,6 +19,8 @@ use reqwest::Url;
 use semver::Version;
 use serde::Deserialize;
 
+use crate::atomic_write;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateTarget {
     pub platform: String,
@@ -427,14 +429,7 @@ impl UpdateCoordinator {
     }
 
     fn record_attempt(&self, now: UnixTimestamp) {
-        let result = self
-            .attempt_path
-            .parent()
-            .ok_or(())
-            .and_then(|parent| std::fs::create_dir_all(parent).map_err(|_| ()))
-            .and_then(|()| {
-                std::fs::write(&self.attempt_path, now.as_seconds().to_string()).map_err(|_| ())
-            });
+        let result = atomic_write(&self.attempt_path, now.as_seconds().to_string().as_bytes());
         if result.is_err() {
             tracing::warn!("failed to persist the low-frequency update-check attempt");
         }

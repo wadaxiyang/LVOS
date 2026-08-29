@@ -30,7 +30,7 @@ use uuid::Uuid;
 use crate::{
     AuthenticatedSession, DatabaseWorker, HttpSyncTransport, LoginCredentials, LookupCardState,
     LookupMode, LookupService, RemoteDevice, SessionError, SyncEngine, SyncWorker,
-    SyncWorkerHandle, TransportError, UiDataError, UiDataService, UiRecordData,
+    SyncWorkerHandle, TransportError, UiDataError, UiDataService, UiRecordData, atomic_write,
 };
 
 const MAX_LOOKUP_BYTES: usize = 2_000;
@@ -988,19 +988,21 @@ fn write_provider_preferences(
     path: &Path,
     preferences: &ProviderPreferences,
 ) -> Result<(), ApplicationError> {
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, serde_json::to_vec_pretty(preferences)?)?;
-    fs::rename(temporary, path)?;
-    Ok(())
+    write_json_preferences(path, preferences)
 }
 
 fn write_network_preferences(
     path: &Path,
     preferences: &NetworkPreferences,
 ) -> Result<(), ApplicationError> {
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, serde_json::to_vec_pretty(preferences)?)?;
-    fs::rename(temporary, path)?;
+    write_json_preferences(path, preferences)
+}
+
+fn write_json_preferences<T: Serialize>(
+    path: &Path,
+    preferences: &T,
+) -> Result<(), ApplicationError> {
+    atomic_write(path, &serde_json::to_vec_pretty(preferences)?)?;
     Ok(())
 }
 

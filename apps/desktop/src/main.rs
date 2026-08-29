@@ -10,9 +10,9 @@ use std::{path::PathBuf, sync::Arc};
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use lvos::{
-    DesktopApplication, GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport, LookupMode,
-    NativeReleasePageOpener, NetworkPreferences, ProviderPreferences, ProxyKind,
-    UpdateCheckOutcome, UpdateCoordinator,
+    DesktopApplication, GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport,
+    LocalPreferenceStore, LookupMode, NativeReleasePageOpener, NetworkPreferences,
+    ProviderPreferences, ProxyKind, UpdateCheckOutcome, UpdateCoordinator,
 };
 use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
@@ -66,16 +66,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     let native =
         install_windows_runtime(&ui, &runtime, instance, &log_path, Arc::clone(&application))?;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if !load_boolean_preference("launch-minimized") {
         ui.show_main_window()?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     ui.show_main_window()?;
-    #[cfg(target_os = "windows")]
-    if !load_boolean_preference("launch-minimized") {
-        ui.show_main_window()?;
-    }
     #[cfg(target_os = "macos")]
     show_accessibility_ui_if_needed(&ui)?;
     slint::run_event_loop_until_quit()?;
@@ -1062,7 +1058,7 @@ fn install_windows_runtime(
         }
     });
 
-    let hotkey_display = load_windows_hotkey();
+    let hotkey_display = load_platform_hotkey();
     ui.main_window()
         .set_global_hotkey(hotkey_display.clone().into());
     let hotkey = WindowsHotKey::register(&hotkey_display).inspect_err(|_error| {
@@ -1114,9 +1110,9 @@ fn install_windows_runtime(
         }
         let mut hotkey = settings_hotkey.borrow_mut();
         match hotkey.update(display.as_str()) {
-            Ok(()) => match save_windows_hotkey(display.as_str()) {
+            Ok(()) => match save_platform_hotkey(display.as_str()) {
                 Ok(()) => "".into(),
-                Err(()) => "The hotkey changed but its preference could not be saved.".into(),
+                Err(_) => "The hotkey changed but its preference could not be saved.".into(),
             },
             Err(lvos_platform::PlatformError::Conflict) => {
                 "That shortcut is already in use. The previous hotkey remains active.".into()
@@ -1218,7 +1214,7 @@ fn install_macos_runtime(
             "The launch preference could not be saved.".into()
         }
     });
-    let hotkey_display = load_macos_hotkey();
+    let hotkey_display = load_platform_hotkey();
     ui.main_window()
         .set_global_hotkey(hotkey_display.as_str().into());
     let hotkey_registration = lvos_platform::macos::parse_hotkey_display(&hotkey_display)?;
@@ -1277,9 +1273,9 @@ fn install_macos_runtime(
             return "The global hotkey service is unavailable.".into();
         };
         match hotkey.update(&registration) {
-            Ok(()) => match save_macos_hotkey(display.as_str()) {
+            Ok(()) => match save_platform_hotkey(display.as_str()) {
                 Ok(()) => "".into(),
-                Err(()) => "The hotkey changed but its preference could not be saved.".into(),
+                Err(_) => "The hotkey changed but its preference could not be saved.".into(),
             },
             Err(lvos_platform::PlatformError::Conflict) => {
                 "That shortcut is already in use. The previous hotkey remains active.".into()
@@ -1403,66 +1399,37 @@ fn application_data_root() -> PathBuf {
     );
 }
 
-#[cfg(target_os = "macos")]
-fn hotkey_preference_path() -> PathBuf {
-    application_data_root().join("global-hotkey.txt")
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn local_preferences() -> LocalPreferenceStore {
+    LocalPreferenceStore::new(application_data_root())
 }
 
-#[cfg(target_os = "macos")]
-fn load_macos_hotkey() -> String {
-    std::fs::read_to_string(hotkey_preference_path())
-        .ok()
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_platform_hotkey() -> String {
+    let saved = local_preferences().load_text("global-hotkey");
+    #[cfg(target_os = "macos")]
+    return saved
         .filter(|value| lvos_platform::macos::parse_hotkey_display(value).is_ok())
-        .unwrap_or_else(|| "⌥D".to_owned())
-}
-
-#[cfg(target_os = "macos")]
-fn save_macos_hotkey(value: &str) -> Result<(), ()> {
-    let path = hotkey_preference_path();
-    let parent = path.parent().ok_or(())?;
-    std::fs::create_dir_all(parent).map_err(|_| ())?;
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, value.trim().as_bytes()).map_err(|_| ())?;
-    std::fs::rename(temporary, path).map_err(|_| ())
-}
-
-#[cfg(target_os = "windows")]
-fn windows_hotkey_preference_path() -> PathBuf {
-    application_data_root().join("global-hotkey.txt")
-}
-
-#[cfg(target_os = "windows")]
-fn load_windows_hotkey() -> String {
-    std::fs::read_to_string(windows_hotkey_preference_path())
-        .ok()
+        .unwrap_or_else(|| "⌥D".to_owned());
+    #[cfg(target_os = "windows")]
+    return saved
         .filter(|value| lvos_platform::windows::parse_hotkey_display(value).is_ok())
-        .unwrap_or_else(|| "Alt+D".to_owned())
+        .unwrap_or_else(|| "Alt+D".to_owned());
 }
 
-#[cfg(target_os = "windows")]
-fn save_windows_hotkey(value: &str) -> Result<(), ()> {
-    let path = windows_hotkey_preference_path();
-    let parent = path.parent().ok_or(())?;
-    std::fs::create_dir_all(parent).map_err(|_| ())?;
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, value.trim().as_bytes()).map_err(|_| ())?;
-    std::fs::rename(temporary, path).map_err(|_| ())
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn save_platform_hotkey(value: &str) -> Result<(), std::io::Error> {
+    local_preferences().save_text("global-hotkey", value.trim())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn load_boolean_preference(name: &str) -> bool {
-    std::fs::read_to_string(application_data_root().join(format!("{name}.txt")))
-        .is_ok_and(|value| value.trim() == "true")
+    local_preferences().load_boolean(name)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn save_boolean_preference(name: &str, value: bool) -> Result<(), ()> {
-    let path = application_data_root().join(format!("{name}.txt"));
-    let parent = path.parent().ok_or(())?;
-    std::fs::create_dir_all(parent).map_err(|_| ())?;
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, if value { "true" } else { "false" }).map_err(|_| ())?;
-    std::fs::rename(temporary, path).map_err(|_| ())
+fn save_boolean_preference(name: &str, value: bool) -> Result<(), std::io::Error> {
+    local_preferences().save_boolean(name, value)
 }
 
 #[cfg(not(target_os = "windows"))]

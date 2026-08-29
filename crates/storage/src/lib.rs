@@ -1,5 +1,6 @@
 //! `SQLite` persistence for LVOS Desktop Profiles.
 
+mod codec;
 mod installation;
 mod model;
 mod portable;
