@@ -1,6 +1,5 @@
 import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, FluentSwitch, BadgeKind, Theme, Typography, UiConstants } from "@quadrant-kit";
 import { FeedbackKind } from "../../model/ui_types.slint";
-import { LineEdit } from "std-widgets.slint"; // S4: the two remaining credential fields.
 
 export component TranslationSettingsPage inherits VerticalLayout {
     in-out property <string> tokenhub-model: "hy-mt2-lite";
@@ -28,7 +27,7 @@ export component TranslationSettingsPage inherits VerticalLayout {
             Text { text: "Model"; color: Theme.text_primary; font-size: Typography.body; }
             tokenhub-model := FluentTextField { text <=> root.tokenhub-model; placeholder_text: "hy-mt2-lite"; accessible-role: groupbox; accessible-label: "TokenHub model"; }
             Text { text: "API key"; color: Theme.text_primary; font-size: Typography.body; }
-            tokenhub-key := LineEdit { placeholder-text: "Stored securely in Windows Credential Manager"; input-type: InputType.password; accessible-label: "TokenHub API key"; }
+            tokenhub-key := FluentTextField { min-width: 160px; placeholder_text: "Stored securely in the system credential store"; input-type: InputType.password; accessible-role: groupbox; accessible-label: "TokenHub API key"; }
             SettingRow { title: "Provider proxy"; description: "Use the proxy configured in General for translation requests.";
                 provider-proxy := FluentSwitch { checked <=> root.provider-proxy-enabled; accessible-label: "Provider proxy"; }
             }

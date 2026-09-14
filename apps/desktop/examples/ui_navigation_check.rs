@@ -39,8 +39,10 @@ struct Signals {
     provider_tests: Cell<u32>,
     provider_saves: Cell<u32>,
     provider_key_empty: Cell<bool>,
+    provider_value_matches: Cell<bool>,
     provider_proxy_saved: Cell<bool>,
     password_empty: Cell<bool>,
+    password_value_matches: Cell<bool>,
     logins: Cell<u32>,
     revoked: Cell<u32>,
     revoked_expected_id: Cell<bool>,
@@ -81,11 +83,13 @@ fn connect(ui: &MainWindow, signals: &Rc<Signals>) {
     ui.on_test_provider(move |_, value| {
         s.provider_tests.set(s.provider_tests.get() + 1);
         s.provider_key_empty.set(value.is_empty());
+        s.provider_value_matches.set(value == "fixture-key");
     });
     let s = Rc::clone(signals);
     ui.on_login_requested(move |_, _, value| {
         s.logins.set(s.logins.get() + 1);
         s.password_empty.set(value.is_empty());
+        s.password_value_matches.set(value == "fixture-password");
     });
     let s = Rc::clone(signals);
     ui.on_revoke_device_requested(move |id| {
@@ -226,7 +230,9 @@ fn steps() -> Vec<Step> {
             click(ui, 400., 310.);
             key(ui, "fixture-key".into());
             click(ui, 800., 430.);
-            s.provider_tests.get() == 1 && !s.provider_key_empty.get()
+            s.provider_tests.get() == 1
+                && !s.provider_key_empty.get()
+                && s.provider_value_matches.get()
         }),
         step("scroll Translation away", |ui, _| section(ui, 3)),
         step("return to Translation", |ui, _| section(ui, 1)),
@@ -267,7 +273,7 @@ fn steps() -> Vec<Step> {
             click(ui, 400., 387.);
             key(ui, "fixture-password".into());
             click(ui, 885., 430.);
-            s.logins.get() == 1 && !s.password_empty.get()
+            s.logins.get() == 1 && !s.password_empty.get() && s.password_value_matches.get()
         }),
         step("scroll Account away", |ui, _| section(ui, 3)),
         step("return to Account", |ui, _| section(ui, 2)),

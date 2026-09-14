@@ -1,5 +1,4 @@
 import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, Theme, Typography, UiConstants } from "@quadrant-kit";
-import { LineEdit } from "std-widgets.slint"; // S4: the two remaining credential fields.
 
 export component AccountSettingsPage inherits VerticalLayout {
     in property <string> server-url: "https://lvos.niuniu770.site";
@@ -24,7 +23,7 @@ export component AccountSettingsPage inherits VerticalLayout {
             Text { text: "Username"; color: Theme.text_primary; font-size: Typography.body; }
             user := FluentTextField { text: root.username; accessible-role: groupbox; accessible-label: "Username"; }
             Text { text: "Password"; color: Theme.text_primary; font-size: Typography.body; }
-            password := LineEdit { input-type: InputType.password; placeholder-text: "Never stored"; accessible-label: "Account password"; }
+            password := FluentTextField { min-width: 160px; input-type: InputType.password; placeholder_text: "Never stored"; accessible-role: groupbox; accessible-label: "Account password"; }
             HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
                 FluentButton { text: "Sign out"; clicked => { root.logout-requested(); } }
                 FluentButton { text: "Sign in"; primary: true; clicked => { root.login-requested(server.text, user.text, password.text); } }
