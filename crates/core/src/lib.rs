@@ -29,7 +29,7 @@ pub const GITHUB_RELEASES_URL: &str = "https://github.com/wadaxiyang/LVOS/releas
 pub const GITHUB_LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/wadaxiyang/LVOS/releases/latest";
 pub const GITHUB_REST_API_VERSION: &str = "2026-03-10";
-pub const UPDATE_MANIFEST_VERSION: u32 = 1;
+pub const UPDATE_MANIFEST_VERSION: u32 = 2;
 pub const UPDATE_CHECK_INTERVAL_SECONDS: i64 = 86_400;
 pub const MAX_UPDATE_MANIFEST_BYTES: usize = 65_536;
 pub const MAX_GITHUB_RELEASE_BYTES: usize = 1_048_576;
@@ -114,9 +114,10 @@ mod tests {
 
     #[test]
     fn identity_constants_match_v1() {
-        assert_eq!(SOFTWARE_VERSION, "0.1.6");
+        assert_eq!(SOFTWARE_VERSION, "0.1.7");
         assert_eq!(API_VERSION, "v1");
         assert_eq!(CONTENT_KEY_VERSION, 1);
+        assert_eq!(UPDATE_MANIFEST_VERSION, 2);
         assert_eq!(DEFAULT_SERVER_PORT, 7770);
     }
 }

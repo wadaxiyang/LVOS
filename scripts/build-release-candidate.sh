@@ -8,14 +8,17 @@ fi
 
 readonly version="$(python3 scripts/workspace_version.py)"
 readonly output="target/release-package"
-readonly macos="${output}/LVOS-${version}-macos-arm64.zip"
-readonly windows="${output}/LVOS-${version}-windows-x86_64.zip"
+readonly macos="${output}/LVOS-${version}-macos-arm64.dmg"
+readonly windows="${output}/LVOS-${version}-windows-x86_64-setup.exe"
 readonly manifest="${output}/lvos-update-stable.json"
 
 ./scripts/check-before-commit.sh
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps
 ./scripts/package-macos-app.sh
-./scripts/package-windows-cross.sh
+if [[ ! -f "${windows}" ]]; then
+    echo "error: copy the Windows-built installer to ${windows} before assembling the candidate" >&2
+    exit 1
+fi
 python3 scripts/generate_update_manifest.py \
     --version "${version}" \
     --channel stable \

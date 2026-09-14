@@ -14,13 +14,20 @@ bundle="target/release/LVOS.app"
 contents="${bundle}/Contents"
 binary="${contents}/MacOS/LVOS"
 ui_binary="${contents}/MacOS/lvos-ui"
-archive="target/release-package/LVOS-${version}-macos-arm64.zip"
+dmg="target/release-package/LVOS-${version}-macos-arm64.dmg"
+staging="target/release-package/dmg-root"
 
 rm -rf "${bundle}"
 mkdir -p "${contents}/MacOS" "${contents}/Resources"
 cp target/release/lvos-agent "${binary}"
 cp target/release/lvos-ui "${ui_binary}"
 chmod 755 "${binary}" "${ui_binary}"
+mkdir -p "${contents}/Resources/NOTICES"
+cp LICENSE "${contents}/Resources/NOTICES/LVOS-LICENSE.txt"
+cp THIRD_PARTY_NOTICES.md "${contents}/Resources/NOTICES/THIRD_PARTY_NOTICES.md"
+cp licenses/Quadrant-Kit-GPL-3.0.txt "${contents}/Resources/NOTICES/Quadrant-Kit-GPL-3.0.txt"
+cp licenses/Quadrant-Kit-NOTICES.md "${contents}/Resources/NOTICES/Quadrant-Kit-NOTICES.md"
+cp licenses/Fluent-System-Icons-MIT.txt "${contents}/Resources/NOTICES/Fluent-System-Icons-MIT.txt"
 
 cat > "${contents}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,7 +51,7 @@ cat > "${contents}/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key>
     <string>${version}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${version}</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>
@@ -63,8 +70,17 @@ codesign \
     "${bundle}"
 codesign --verify --deep --strict "${bundle}"
 echo "macOS app bundle created: ${bundle}"
-python3 scripts/create_release_zip.py \
-    --source "${bundle}" \
-    --archive-name "LVOS.app" \
-    --output "${archive}"
-echo "unsigned macOS arm64 release archive created: ${archive}"
+rm -rf "${staging}"
+mkdir -p "${staging}"
+cp -R "${bundle}" "${staging}/LVOS.app"
+ln -s /Applications "${staging}/Applications"
+mkdir -p "$(dirname "${dmg}")"
+rm -f "${dmg}"
+hdiutil create \
+    -volname "LVOS ${version}" \
+    -srcfolder "${staging}" \
+    -format UDZO \
+    -ov \
+    "${dmg}"
+hdiutil verify "${dmg}"
+echo "unsigned macOS arm64 disk image created: ${dmg}"

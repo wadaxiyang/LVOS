@@ -45,7 +45,7 @@ V1 limitations and excluded features: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.m
 
 ## License
 
-LVOS 0.1.6 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
+LVOS 0.1.7 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
 compatibility decision remain incomplete. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the outstanding limitations.
 
@@ -80,8 +80,10 @@ For package resource verification, `LVOS.exe --ui-smoke` (or the macOS executabl
 flag) creates synthetic windows and exits after rendering all three. It bypasses profile,
 credential, update, hotkey, and service initialization. This checks packaged UI resources; it
 does not validate the live tray, capture permissions, external services, or accessibility.
-`python scripts/check_native_package.py` builds and verifies a native engineering ZIP without
-publishing it. Release acceptance still requires the limitations and license gates above.
+`python scripts/check_native_package.py` builds and deeply verifies the native package without
+publishing it. On Windows it compiles the installable EXE, installs it into a temporary custom
+directory, checks its Start Menu shortcut and notices, then uninstalls it. On macOS it mounts the
+DMG and checks the Agent/UI app bundle, notices, signature, and Applications drag target.
 
 The render diagnostic accepts `dark`, `reduced`, `narrow`, and `collapsed` options after its
 output path; `SLINT_SCALE_FACTOR` can exercise synthetic scale changes. These are separate
@@ -91,3 +93,8 @@ collects three baseline runs before three candidate runs, including CPU, memory 
 show/hide cycles. Use matching release configuration and run without competing builds/UI
 fixtures. Its observed baseline envelope is exploratory and does not constitute an approved
 performance budget.
+
+Phase 5 uses `scripts/measure-phase5-performance.ps1` against optimized Agent/UI binaries. It
+measures rendered cold and warm lookup latency, Agent-only memory, 500 Popup lifecycle cycles,
+Main UI churn, appearance variants, and automatic GUI exit. The current measurements and exact
+scope are recorded in [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).

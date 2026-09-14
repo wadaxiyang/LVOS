@@ -31,6 +31,10 @@ jobs:
       - name: Check isolated server-only graph
         shell: bash
         run: python3 scripts/check_server_only.py
+      - name: Install Windows installer compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
       - name: Verify native engineering package without publishing
         shell: bash
         run: python3 scripts/check_native_package.py

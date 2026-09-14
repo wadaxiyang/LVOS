@@ -784,6 +784,25 @@ impl UiProcessCoordinator {
         self.hosts.borrow().popup_lifecycle.state
     }
 
+    /// Applies appearance variants used by the native lifecycle performance diagnostic.
+    pub fn set_diagnostic_appearance(&self, dark_theme: bool, reduce_motion: bool) {
+        let hosts = self.hosts.borrow();
+        if let Some(main) = &hosts.main {
+            main.main_window.set_dark_theme(dark_theme);
+            main.main_window.set_reduce_motion(reduce_motion);
+        }
+        if let Some(popup) = &hosts.popup {
+            popup.popup.set_dark_theme(dark_theme);
+            popup.popup.set_reduce_motion(reduce_motion);
+        }
+        if let Some(permission) = &hosts.permission {
+            permission.permission_window.set_dark_theme(dark_theme);
+            permission
+                .permission_window
+                .set_reduce_motion(reduce_motion);
+        }
+    }
+
     #[must_use]
     pub fn has_main_host(&self) -> bool {
         self.hosts.borrow().main.is_some()

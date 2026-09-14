@@ -226,6 +226,7 @@ impl AgentService {
                     self.handle_request(&ui, request_id, operation).await;
                 }
                 UiToAgent::LookupDismissed { .. }
+                | UiToAgent::LookupPresentationApplied { .. }
                 | UiToAgent::Ready(_)
                 | UiToAgent::Hello(_)
                 | UiToAgent::Exiting { .. } => {}

@@ -539,8 +539,8 @@ fn validate_manifest_artifact(
     artifact: &ManifestArtifact,
 ) -> Result<(), UpdateError> {
     let expected_name = match (artifact.platform.as_str(), artifact.architecture.as_str()) {
-        ("macos", "arm64") => format!("LVOS-{version}-macos-arm64.zip"),
-        ("windows", "x86_64") => format!("LVOS-{version}-windows-x86_64.zip"),
+        ("macos", "arm64") => format!("LVOS-{version}-macos-arm64.dmg"),
+        ("windows", "x86_64") => format!("LVOS-{version}-windows-x86_64-setup.exe"),
         _ => return Err(UpdateError::UnsupportedPlatform),
     };
     let expected_url = format!(

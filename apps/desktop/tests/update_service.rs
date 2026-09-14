@@ -30,15 +30,24 @@ fn manifest_url() -> String {
     format!("{GITHUB_RELEASES_URL}/download/v{VERSION}/lvos-update-stable.json")
 }
 
+fn artifact_name(platform: &str, architecture: &str) -> String {
+    match (platform, architecture) {
+        ("macos", "arm64") => format!("LVOS-{VERSION}-macos-arm64.dmg"),
+        ("windows", "x86_64") => format!("LVOS-{VERSION}-windows-x86_64-setup.exe"),
+        _ => unreachable!("test target is frozen"),
+    }
+}
+
 fn artifact_url(platform: &str, architecture: &str) -> String {
     format!(
-        "{GITHUB_RELEASES_URL}/download/v{VERSION}/LVOS-{VERSION}-{platform}-{architecture}.zip"
+        "{GITHUB_RELEASES_URL}/download/v{VERSION}/{}",
+        artifact_name(platform, architecture)
     )
 }
 
 fn valid_manifest() -> Value {
     json!({
-        "manifest_version": 1,
+        "manifest_version": 2,
         "product": "LVOS",
         "channel": "stable",
         "version": VERSION,
@@ -47,7 +56,7 @@ fn valid_manifest() -> Value {
             {
                 "platform": "macos",
                 "architecture": "arm64",
-                "name": format!("LVOS-{VERSION}-macos-arm64.zip"),
+                "name": artifact_name("macos", "arm64"),
                 "size_bytes": 120,
                 "sha256": MAC_HASH,
                 "download_url": artifact_url("macos", "arm64")
@@ -55,7 +64,7 @@ fn valid_manifest() -> Value {
             {
                 "platform": "windows",
                 "architecture": "x86_64",
-                "name": format!("LVOS-{VERSION}-windows-x86_64.zip"),
+                "name": artifact_name("windows", "x86_64"),
                 "size_bytes": 240,
                 "sha256": WINDOWS_HASH,
                 "download_url": artifact_url("windows", "x86_64")
@@ -79,14 +88,14 @@ fn valid_release() -> Value {
                 "browser_download_url": manifest_url()
             },
             {
-                "name": format!("LVOS-{VERSION}-macos-arm64.zip"),
+                "name": artifact_name("macos", "arm64"),
                 "state": "uploaded",
                 "size": 120,
                 "digest": format!("sha256:{MAC_HASH}"),
                 "browser_download_url": artifact_url("macos", "arm64")
             },
             {
-                "name": format!("LVOS-{VERSION}-windows-x86_64.zip"),
+                "name": artifact_name("windows", "x86_64"),
                 "state": "uploaded",
                 "size": 240,
                 "digest": format!("sha256:{WINDOWS_HASH}"),
@@ -351,7 +360,7 @@ fn available_info() -> UpdateInfo {
         available: true,
         artifact: UpdateArtifact {
             version: VERSION.to_owned(),
-            name: format!("LVOS-{VERSION}-macos-arm64.zip"),
+            name: artifact_name("macos", "arm64"),
             platform: "macos".to_owned(),
             architecture: "arm64".to_owned(),
             download_url: artifact_url("macos", "arm64"),

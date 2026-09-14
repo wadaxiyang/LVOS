@@ -227,9 +227,8 @@ impl NotificationService for WindowsNotificationService {
 fn show_notification(title: &str, message: &str) -> Result<(), PlatformError> {
     Notification::new()
         .appname("LVOS")
-        // A portable, unsigned executable has no installed Start Menu shortcut carrying LVOS's
-        // AppUserModelID yet. `notify-rust` deliberately falls back to the registered PowerShell
-        // notifier when no ID is supplied, so the error remains visible before Stage 13 packaging.
+        // Installed releases have a Start Menu shortcut carrying LVOS's AppUserModelID. Developer
+        // builds can still run without it, so notify-rust retains its registered fallback.
         .summary(title)
         .body(message)
         .show()

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import plistlib
 import struct
 import tempfile
 import unittest
@@ -57,7 +56,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.6",
+                    "version": "0.1.7",
                     "license": None,
                     "license_file": license_path,
                 }
@@ -98,6 +97,20 @@ class WorkspaceCheckTests(unittest.TestCase):
         self.assertIn("actions/checkout@v7", release + continuous)
         self.assertIn("actions/upload-artifact@v7", release)
         self.assertIn("actions/download-artifact@v8", release)
+        self.assertIn("macos-arm64.dmg", release)
+        self.assertIn("windows-x86_64-setup.exe", release)
+        self.assertNotIn("LVOS-*.zip", release)
+
+    def test_windows_installer_keeps_directory_and_shortcut_choices_visible(self) -> None:
+        installer = (
+            Path(__file__).parent.parent / "packaging/windows/LVOS.iss"
+        ).read_text(encoding="utf-8")
+        self.assertIn("DisableDirPage=no", installer)
+        self.assertIn("DisableProgramGroupPage=no", installer)
+        self.assertIn('Name: "desktopicon"', installer)
+        self.assertIn('Name: "{group}\\LVOS"', installer)
+        self.assertIn('DestName: "LVOS.exe"', installer)
+        self.assertIn('DestName: "lvos-ui.exe"', installer)
 
     def test_release_tag_must_match_workspace_version(self) -> None:
         check_release_tag("v0.1.4", "0.1.4")
@@ -126,28 +139,17 @@ class WorkspaceCheckTests(unittest.TestCase):
         ):
             self.assertNotIn(removed_surface, sources)
 
-    def test_release_zip_and_manifest_are_deterministic_and_hashed(self) -> None:
+    def test_release_manifest_accepts_installable_artifacts_and_hashes_them(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:
             directory = Path(raw_directory)
-            mac_source = directory / "LVOS.app"
-            mac_source.mkdir()
-            (mac_source / "LVOS").write_bytes(b"macos")
-            windows_source = directory / "LVOS.exe"
-            windows_source.write_bytes(b"windows")
-            mac_archive = directory / "LVOS-0.1.0-macos-arm64.zip"
-            windows_archive = directory / "LVOS-0.1.0-windows-x86_64.zip"
-            create_release_zip(mac_source, mac_archive, "LVOS.app")
-            first = mac_archive.read_bytes()
-            create_release_zip(mac_source, mac_archive, "LVOS.app")
-            self.assertEqual(first, mac_archive.read_bytes())
-            create_release_zip(windows_source, windows_archive, "LVOS.exe")
-            with zipfile.ZipFile(windows_archive) as archive:
-                self.assertEqual(archive.namelist(), [*sorted(NOTICE_FILES), "LVOS.exe"])
-                verify_notices(archive)
+            mac_archive = directory / "LVOS-0.1.0-macos-arm64.dmg"
+            windows_archive = directory / "LVOS-0.1.0-windows-x86_64-setup.exe"
+            mac_archive.write_bytes(b"macos disk image")
+            windows_archive.write_bytes(b"windows installer")
             manifest = build_manifest(
                 "0.1.0", "stable", mac_archive, windows_archive
             )
-            self.assertEqual(manifest["manifest_version"], 1)
+            self.assertEqual(manifest["manifest_version"], 2)
             self.assertEqual(len(manifest["artifacts"]), 2)
             self.assertEqual(len(manifest["artifacts"][0]["sha256"]), 64)
             with mac_archive.open("wb") as oversized:
@@ -185,25 +187,6 @@ class WorkspaceCheckTests(unittest.TestCase):
     def test_release_candidate_verifier_checks_both_native_identities(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:
             directory = Path(raw_directory)
-            bundle = directory / "bundle" / "LVOS.app"
-            (bundle / "Contents" / "MacOS").mkdir(parents=True)
-            (bundle / "Contents" / "Info.plist").write_bytes(
-                plistlib.dumps(
-                    {
-                        "CFBundleDisplayName": "LVOS",
-                        "CFBundleExecutable": "LVOS",
-                        "CFBundleIdentifier": "site.niuniu770.lvos",
-                        "CFBundleShortVersionString": "0.1.0",
-                        "LSMinimumSystemVersion": "15.0",
-                    }
-                )
-            )
-            (bundle / "Contents" / "MacOS" / "LVOS").write_bytes(
-                b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C)
-            )
-            (bundle / "Contents" / "MacOS" / "lvos-ui").write_bytes(
-                b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C)
-            )
             windows = bytearray(256)
             windows[:2] = b"MZ"
             struct.pack_into("<I", windows, 0x3C, 0x80)
@@ -211,19 +194,12 @@ class WorkspaceCheckTests(unittest.TestCase):
             struct.pack_into("<H", windows, 0x84, 0x8664)
             struct.pack_into("<H", windows, 0x98, 0x20B)
             struct.pack_into("<H", windows, 0x98 + 68, 2)
-            executable = directory / "LVOS.exe"
-            executable.write_bytes(windows)
-            mac_archive = directory / "LVOS-0.1.0-macos-arm64.zip"
-            windows_archive = directory / "LVOS-0.1.0-windows-x86_64.zip"
-            create_release_zip(bundle, mac_archive, "LVOS.app")
-            ui_executable = directory / "lvos-ui.exe"
-            ui_executable.write_bytes(windows)
-            create_release_zip(
-                executable,
-                windows_archive,
-                "LVOS.exe",
-                {"lvos-ui.exe": ui_executable},
-            )
+            mac = bytearray(1024)
+            mac[-512:-508] = b"koly"
+            mac_archive = directory / "LVOS-0.1.0-macos-arm64.dmg"
+            mac_archive.write_bytes(mac)
+            windows_archive = directory / "LVOS-0.1.0-windows-x86_64-setup.exe"
+            windows_archive.write_bytes(windows)
             manifest = build_manifest(
                 "0.1.0", "stable", mac_archive, windows_archive
             )
@@ -234,7 +210,7 @@ class WorkspaceCheckTests(unittest.TestCase):
                 [mac_archive, windows_archive, manifest_path], checksum_path
             )
             verify_candidate(directory, "0.1.0")
-            checksum_path.write_text("0" * 64 + "  bad.zip\n", encoding="ascii")
+            checksum_path.write_text("0" * 64 + "  bad.dmg\n", encoding="ascii")
             with self.assertRaises(ValueError):
                 verify_candidate(directory, "0.1.0")
 

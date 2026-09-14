@@ -2122,6 +2122,17 @@ Native lifecycle diagnostic 必须覆盖：空闲退出、退出许可前排队�
 
 建立新的 release baseline。
 
+实现后的 Windows 发布基线由以下命令生成：
+
+```powershell
+powershell -NoProfile -File scripts/measure-phase5-performance.ps1
+```
+
+该诊断必须等待 Popup 实际渲染回执后计时，并把聚合结果与原始进程样本写入
+`target/phase5-performance/`。0.1.7 基线记录在 `PERFORMANCE_BASELINE.md`；冷启动目标仍为优化
+目标，Warm latency、500-cycle 无持续线性增长、Agent-only 无 GUI process 和 timeout 后退出为
+发布检查项。
+
 ---
 
 # 51. Future Option — Dedicated Popup Process

@@ -28,7 +28,12 @@ def file_sha256(path: Path) -> str:
 
 
 def artifact(path: Path, version: str, platform: str, architecture: str) -> dict[str, object]:
-    expected = f"LVOS-{version}-{platform}-{architecture}.zip"
+    expected = {
+        ("macos", "arm64"): f"LVOS-{version}-macos-arm64.dmg",
+        ("windows", "x86_64"): f"LVOS-{version}-windows-x86_64-setup.exe",
+    }.get((platform, architecture))
+    if expected is None:
+        raise ValueError(f"unsupported release target: {platform}/{architecture}")
     if path.name != expected or not path.is_file():
         raise ValueError(f"expected release artifact {expected}")
     size = path.stat().st_size
@@ -55,7 +60,7 @@ def build_manifest(
     if CHANNEL.fullmatch(channel) is None or channel != "stable":
         raise ValueError("V1 supports only the stable update channel")
     return {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "product": "LVOS",
         "channel": channel,
         "version": version,

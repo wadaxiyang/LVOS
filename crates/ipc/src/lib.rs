@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -472,6 +472,10 @@ pub enum AgentToUi {
     ShowPermission {
         status: String,
     },
+    SetDiagnosticAppearance {
+        dark_theme: bool,
+        reduce_motion: bool,
+    },
     OperationResult(OperationResult),
     IdleExitApproved {
         request_id: Uuid,
@@ -491,6 +495,10 @@ pub enum UiToAgent {
     },
     LookupDismissed {
         display_session_id: Uuid,
+    },
+    LookupPresentationApplied {
+        display_session_id: Uuid,
+        query_id: u64,
     },
     UiBlockingChanged {
         blocked: bool,

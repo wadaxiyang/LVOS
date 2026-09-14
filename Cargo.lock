@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "lvos"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "axum",
@@ -3074,7 +3074,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-agent"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "lvos",
  "lvos-auth",
@@ -3089,18 +3089,19 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "winit",
+ "winresource",
 ]
 
 [[package]]
 name = "lvos-auth"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "lvos-core",
 ]
 
 [[package]]
 name = "lvos-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "sha2 0.11.0",
  "unicode-casefold",
@@ -3110,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-ipc"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -3120,7 +3121,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-platform"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "block2 0.6.2",
@@ -3145,7 +3146,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-server"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "argon2",
  "axum",
@@ -3170,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-storage"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "lvos-core",
  "lvos-sync",
@@ -3183,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-sync"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "lvos-core",
  "serde",
@@ -3191,7 +3192,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-translation"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "futures-util",

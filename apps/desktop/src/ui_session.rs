@@ -58,6 +58,8 @@ pub(crate) struct UiSession {
     pending: Rc<RefCell<HashMap<Uuid, PendingRequest>>>,
     local_operations: Rc<Cell<u32>>,
     exit: Rc<RefCell<ExitState>>,
+    diagnostic_appearance: Rc<Cell<(bool, bool)>>,
+    presentation_ack: Rc<RefCell<Option<(Uuid, u64)>>>,
 }
 
 impl UiSession {
@@ -75,6 +77,8 @@ impl UiSession {
             pending: Rc::new(RefCell::new(HashMap::new())),
             local_operations: Rc::new(Cell::new(0)),
             exit: Rc::new(RefCell::new(ExitState::default())),
+            diagnostic_appearance: Rc::new(Cell::new((false, false))),
+            presentation_ack: Rc::new(RefCell::new(None)),
         });
         session.install_host_hooks();
         session
@@ -83,12 +87,32 @@ impl UiSession {
     fn install_host_hooks(self: &Rc<Self>) {
         let session = Rc::clone(self);
         self.ui.on_main_created(move |main, confirmations| {
+            let (dark_theme, reduce_motion) = session.diagnostic_appearance.get();
+            main.set_dark_theme(dark_theme);
+            main.set_reduce_motion(reduce_motion);
             session.install_main_callbacks(&main, &confirmations);
             session.apply_cached_main(&main);
         });
 
         let session = Rc::clone(self);
         self.ui.on_popup_created(move |popup| {
+            let (dark_theme, reduce_motion) = session.diagnostic_appearance.get();
+            popup.set_dark_theme(dark_theme);
+            popup.set_reduce_motion(reduce_motion);
+            let requests = session.requests.clone();
+            let pending = Rc::clone(&session.presentation_ack);
+            if let Err(error) = popup.window().set_rendering_notifier(move |state, _| {
+                if matches!(state, slint::RenderingState::AfterRendering)
+                    && let Some((display_session_id, query_id)) = pending.borrow_mut().take()
+                {
+                    let _ = requests.event(UiToAgent::LookupPresentationApplied {
+                        display_session_id,
+                        query_id,
+                    });
+                }
+            }) {
+                tracing::warn!(%error, "failed to install Lookup presentation acknowledgement");
+            }
             let handles = session.clone_handles();
             let popup_weak = popup.as_weak();
             popup.on_favorite_toggled(move || {
@@ -123,17 +147,20 @@ impl UiSession {
             session.clone_handles().evaluate_exit();
         });
 
-        let handles = self.clone_handles();
+        let session = Rc::clone(self);
         self.ui.on_permission_created(move |permission| {
-            let sender = handles.clone();
+            let (dark_theme, reduce_motion) = session.diagnostic_appearance.get();
+            permission.set_dark_theme(dark_theme);
+            permission.set_reduce_motion(reduce_motion);
+            let sender = session.clone_handles();
             permission.on_open_settings(move || {
                 sender.submit_background(UiOperation::OpenAccessibilitySettings);
             });
-            let sender = handles.clone();
+            let sender = session.clone_handles();
             permission.on_check_again(move || {
                 sender.submit_background(UiOperation::RequestAccessibilityPermission);
             });
-            let sender = handles.clone();
+            let sender = session.clone_handles();
             permission.on_restart_requested(move || {
                 sender.submit_background(UiOperation::RestartAgent);
             });
@@ -169,12 +196,26 @@ impl UiSession {
                 state,
             } => {
                 self.exit.borrow_mut().armed = true;
-                self.begin_lookup(display_session_id, state);
+                let query_id = state.query_id();
+                self.presentation_ack
+                    .borrow_mut()
+                    .replace((display_session_id, query_id));
+                if !self.begin_lookup(display_session_id, state) {
+                    self.presentation_ack.borrow_mut().take();
+                }
             }
             AgentToUi::UpdateLookup {
                 display_session_id,
                 state,
-            } => self.update_lookup(display_session_id, state),
+            } => {
+                let query_id = state.query_id();
+                self.presentation_ack
+                    .borrow_mut()
+                    .replace((display_session_id, query_id));
+                if !self.update_lookup(display_session_id, state) {
+                    self.presentation_ack.borrow_mut().take();
+                }
+            }
             AgentToUi::HideLookup { display_session_id } => {
                 if self
                     .display
@@ -202,6 +243,13 @@ impl UiSession {
                 if let Err(error) = self.ui.show_permission_window() {
                     tracing::error!(%error, "failed to show permission UI");
                 }
+            }
+            AgentToUi::SetDiagnosticAppearance {
+                dark_theme,
+                reduce_motion,
+            } => {
+                self.diagnostic_appearance.set((dark_theme, reduce_motion));
+                self.ui.set_diagnostic_appearance(dark_theme, reduce_motion);
             }
             AgentToUi::OperationResult(result) => self.apply_operation_result(&result),
             AgentToUi::IdleExitApproved {
@@ -295,7 +343,7 @@ impl UiSession {
         }
     }
 
-    fn begin_lookup(&self, display_session_id: Uuid, state: LookupUiState) {
+    fn begin_lookup(&self, display_session_id: Uuid, state: LookupUiState) -> bool {
         let query_id = state.query_id();
         match lookup_state(state) {
             Ok(state) => {
@@ -303,31 +351,44 @@ impl UiSession {
                     id: display_session_id,
                     query_id,
                 });
-                if let Err(error) = self.ui.show_lookup_card(&state) {
-                    tracing::error!(%error, "failed to show Lookup Card");
+                match self.ui.show_lookup_card(&state) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::error!(%error, "failed to show Lookup Card");
+                        false
+                    }
                 }
             }
-            Err(error) => tracing::warn!(%error, "ignored invalid lookup state"),
+            Err(error) => {
+                tracing::warn!(%error, "ignored invalid lookup state");
+                false
+            }
         }
     }
 
-    fn update_lookup(&self, display_session_id: Uuid, state: LookupUiState) {
+    fn update_lookup(&self, display_session_id: Uuid, state: LookupUiState) -> bool {
         let expected = DisplaySession {
             id: display_session_id,
             query_id: state.query_id(),
         };
         if self.display.borrow().as_ref() != Some(&expected) {
             tracing::debug!("ignored result for an inactive lookup display session");
-            return;
+            return false;
         }
         match lookup_state(state) {
             Ok(state) => {
-                if !self.ui.update_lookup_card_if_active(&state) {
+                if self.ui.update_lookup_card_if_active(&state) {
+                    true
+                } else {
                     self.display.borrow_mut().take();
                     tracing::debug!("ignored lookup result after Popup dismissal");
+                    false
                 }
             }
-            Err(error) => tracing::warn!(%error, "ignored invalid lookup state"),
+            Err(error) => {
+                tracing::warn!(%error, "ignored invalid lookup state");
+                false
+            }
         }
     }
 

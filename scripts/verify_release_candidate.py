@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
-import plistlib
 import re
 import struct
 import sys
@@ -63,56 +62,37 @@ def safe_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return entries
 
 
-def verify_macos(path: Path, version: str) -> None:
-    with zipfile.ZipFile(path) as archive:
-        verify_notices(archive)
-        entries = safe_entries(archive)
-        names = {entry.filename for entry in entries}
-        plist_name = "LVOS.app/Contents/Info.plist"
-        binary_name = "LVOS.app/Contents/MacOS/LVOS"
-        ui_binary_name = "LVOS.app/Contents/MacOS/lvos-ui"
-        if plist_name not in names or binary_name not in names or ui_binary_name not in names:
-            raise ValueError("macOS archive lacks the LVOS Agent/UI process pair")
-        metadata = plistlib.loads(archive.read(plist_name))
-        expected = {
-            "CFBundleDisplayName": "LVOS",
-            "CFBundleExecutable": "LVOS",
-            "CFBundleIdentifier": "site.niuniu770.lvos",
-            "CFBundleShortVersionString": version,
-            "LSMinimumSystemVersion": "15.0",
-        }
-        if any(metadata.get(key) != value for key, value in expected.items()):
-            raise ValueError("macOS Info.plist disagrees with frozen release identity")
-        for name in (binary_name, ui_binary_name):
-            binary = archive.read(name)
-            if len(binary) < 8 or binary[:4] != b"\xcf\xfa\xed\xfe":
-                raise ValueError(f"macOS executable is not a 64-bit little-endian Mach-O: {name}")
-            if struct.unpack_from("<I", binary, 4)[0] != 0x0100000C:
-                raise ValueError(f"macOS executable is not arm64: {name}")
+def verify_macos_dmg(path: Path) -> None:
+    if path.stat().st_size < 512:
+        raise ValueError("macOS disk image is too small")
+    with path.open("rb") as image:
+        image.seek(-512, 2)
+        if image.read(4) != b"koly":
+            raise ValueError("macOS artifact lacks an UDIF koly trailer")
 
 
-def verify_windows(path: Path) -> None:
-    with zipfile.ZipFile(path) as archive:
-        verify_notices(archive)
-        entries = safe_entries(archive)
-        files = [entry for entry in entries if not entry.is_dir()]
-        binary_names = {"LVOS.exe", "lvos-ui.exe"}
-        if {entry.filename for entry in files} != {*binary_names, *NOTICE_FILES}:
-            raise ValueError("Windows archive must contain the Agent/UI process pair and notices")
-        binaries = {name: archive.read(name) for name in binary_names}
-    for name, binary in binaries.items():
-        if len(binary) < 0x100 or binary[:2] != b"MZ":
-            raise ValueError(f"Windows executable lacks an MZ header: {name}")
-        pe_offset = struct.unpack_from("<I", binary, 0x3C)[0]
-        if pe_offset + 96 > len(binary) or binary[pe_offset : pe_offset + 4] != b"PE\0\0":
-            raise ValueError(f"Windows executable lacks a valid PE header: {name}")
-        if struct.unpack_from("<H", binary, pe_offset + 4)[0] != 0x8664:
-            raise ValueError(f"Windows executable is not x86_64: {name}")
-        optional = pe_offset + 24
-        if struct.unpack_from("<H", binary, optional)[0] != 0x20B:
-            raise ValueError(f"Windows executable is not PE32+: {name}")
-        if struct.unpack_from("<H", binary, optional + 68)[0] != 2:
-            raise ValueError(f"Windows executable is not a GUI subsystem binary: {name}")
+def verify_pe_gui(path: Path, *, require_x86_64: bool) -> None:
+    binary = path.read_bytes()
+    if len(binary) < 0x100 or binary[:2] != b"MZ":
+        raise ValueError(f"Windows executable lacks an MZ header: {path.name}")
+    pe_offset = struct.unpack_from("<I", binary, 0x3C)[0]
+    if pe_offset + 96 > len(binary) or binary[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise ValueError(f"Windows executable lacks a valid PE header: {path.name}")
+    machine = struct.unpack_from("<H", binary, pe_offset + 4)[0]
+    if require_x86_64 and machine != 0x8664:
+        raise ValueError(f"Windows executable is not x86_64: {path.name}")
+    if not require_x86_64 and machine not in {0x014C, 0x8664}:
+        raise ValueError(f"Windows installer has an unsupported bootstrap architecture: {path.name}")
+    optional = pe_offset + 24
+    expected_magic = 0x20B if machine == 0x8664 else 0x10B
+    if struct.unpack_from("<H", binary, optional)[0] != expected_magic:
+        raise ValueError(f"Windows executable optional header is invalid: {path.name}")
+    if struct.unpack_from("<H", binary, optional + 68)[0] != 2:
+        raise ValueError(f"Windows executable is not a GUI subsystem binary: {path.name}")
+
+
+def verify_windows_installer(path: Path) -> None:
+    verify_pe_gui(path, require_x86_64=False)
 
 
 def verify_checksums(directory: Path, expected_names: list[str]) -> None:
@@ -133,8 +113,8 @@ def verify_checksums(directory: Path, expected_names: list[str]) -> None:
 def verify_candidate(directory: Path, version: str) -> None:
     if VERSION.fullmatch(version) is None:
         raise ValueError("release version must be plain SemVer")
-    mac_name = f"LVOS-{version}-macos-arm64.zip"
-    windows_name = f"LVOS-{version}-windows-x86_64.zip"
+    mac_name = f"LVOS-{version}-macos-arm64.dmg"
+    windows_name = f"LVOS-{version}-windows-x86_64-setup.exe"
     manifest_name = "lvos-update-stable.json"
     expected_names = [mac_name, windows_name, manifest_name]
     for name in [*expected_names, "SHA256SUMS"]:
@@ -145,15 +125,15 @@ def verify_candidate(directory: Path, version: str) -> None:
             or path.stat().st_size > MAX_ARTIFACT_BYTES
         ):
             raise ValueError(f"release candidate file is missing or empty: {name}")
-    verify_macos(directory / mac_name, version)
-    verify_windows(directory / windows_name)
+    verify_macos_dmg(directory / mac_name)
+    verify_windows_installer(directory / windows_name)
     manifest = json.loads((directory / manifest_name).read_text(encoding="utf-8"))
     if set(manifest) != {
         "manifest_version", "product", "channel", "version", "release_page", "artifacts"
     }:
         raise ValueError("update manifest top-level schema is not exact")
     if manifest != {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "product": "LVOS",
         "channel": "stable",
         "version": version,

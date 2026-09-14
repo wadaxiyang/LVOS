@@ -39,6 +39,7 @@ pub(crate) enum UiProcessPhase {
 #[derive(Debug)]
 struct ProcessState {
     phase: UiProcessPhase,
+    process_id: Option<u32>,
     sender: Option<mpsc::UnboundedSender<AgentToUi>>,
     kill_sender: Option<mpsc::Sender<()>>,
     idle_exit_request: Option<Uuid>,
@@ -48,6 +49,7 @@ impl Default for ProcessState {
     fn default() -> Self {
         Self {
             phase: UiProcessPhase::Stopped,
+            process_id: None,
             sender: None,
             kill_sender: None,
             idle_exit_request: None,
@@ -246,6 +248,10 @@ impl UiProcessClient {
         self.inner.state.lock().await.phase
     }
 
+    pub(crate) async fn process_id(&self) -> Option<u32> {
+        self.inner.state.lock().await.process_id
+    }
+
     pub(crate) async fn wait_for_stopped(&self, timeout: Duration) -> bool {
         tokio::time::timeout(timeout, self.wait_until_stopped())
             .await
@@ -371,6 +377,7 @@ impl UiProcessClient {
         hello.validate(self.inner.session_id)?;
         let UiToAgent::Hello(Hello {
             role: ProcessRole::Ui,
+            process_id,
             process_generation,
             authentication,
             ..
@@ -433,6 +440,7 @@ impl UiProcessClient {
             state.phase = UiProcessPhase::Ready {
                 generation: process_generation,
             };
+            state.process_id = Some(process_id);
             state.sender = Some(outbound);
             state.idle_exit_request = None;
         }
@@ -494,6 +502,7 @@ impl UiProcessClient {
                 generation: current,
             };
             state.sender = None;
+            state.process_id = None;
             state.idle_exit_request = None;
             state.kill_sender.clone()
         };
@@ -507,6 +516,7 @@ impl UiProcessClient {
         let mut state = self.inner.state.lock().await;
         if phase_generation(state.phase) == Some(generation) {
             state.phase = UiProcessPhase::Stopped;
+            state.process_id = None;
             state.sender = None;
             state.kill_sender = None;
             state.idle_exit_request = None;
@@ -598,6 +608,7 @@ mod tests {
     fn lifecycle_generation_is_never_lost_when_a_ui_host_is_rebuilt() {
         let mut state = ProcessState {
             phase: UiProcessPhase::Starting { generation: 41 },
+            process_id: None,
             sender: None,
             kill_sender: None,
             idle_exit_request: None,
