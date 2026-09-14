@@ -3043,6 +3043,7 @@ dependencies = [
  "futures-util",
  "lvos-auth",
  "lvos-core",
+ "lvos-ipc",
  "lvos-platform",
  "lvos-server",
  "lvos-storage",
@@ -3072,6 +3073,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lvos-agent"
+version = "0.1.6"
+dependencies = [
+ "lvos",
+ "lvos-auth",
+ "lvos-core",
+ "lvos-ipc",
+ "lvos-platform",
+ "lvos-storage",
+ "lvos-translation",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "winit",
+]
+
+[[package]]
 name = "lvos-auth"
 version = "0.1.6"
 dependencies = [
@@ -3086,6 +3106,16 @@ dependencies = [
  "unicode-casefold",
  "unicode-normalization",
  "unicode-script",
+]
+
+[[package]]
+name = "lvos-ipc"
+version = "0.1.6"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -5835,6 +5865,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

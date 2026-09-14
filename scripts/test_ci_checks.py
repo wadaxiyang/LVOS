@@ -201,6 +201,9 @@ class WorkspaceCheckTests(unittest.TestCase):
             (bundle / "Contents" / "MacOS" / "LVOS").write_bytes(
                 b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C)
             )
+            (bundle / "Contents" / "MacOS" / "lvos-ui").write_bytes(
+                b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C)
+            )
             windows = bytearray(256)
             windows[:2] = b"MZ"
             struct.pack_into("<I", windows, 0x3C, 0x80)
@@ -213,7 +216,14 @@ class WorkspaceCheckTests(unittest.TestCase):
             mac_archive = directory / "LVOS-0.1.0-macos-arm64.zip"
             windows_archive = directory / "LVOS-0.1.0-windows-x86_64.zip"
             create_release_zip(bundle, mac_archive, "LVOS.app")
-            create_release_zip(executable, windows_archive, "LVOS.exe")
+            ui_executable = directory / "lvos-ui.exe"
+            ui_executable.write_bytes(windows)
+            create_release_zip(
+                executable,
+                windows_archive,
+                "LVOS.exe",
+                {"lvos-ui.exe": ui_executable},
+            )
             manifest = build_manifest(
                 "0.1.0", "stable", mac_archive, windows_archive
             )

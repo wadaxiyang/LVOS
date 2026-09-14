@@ -27,7 +27,7 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets --all-features --locked
       - name: Build desktop
-        run: cargo build --locked -p lvos
+        run: cargo build --locked -p lvos-agent -p lvos
       - name: Check isolated server-only graph
         shell: bash
         run: python3 scripts/check_server_only.py

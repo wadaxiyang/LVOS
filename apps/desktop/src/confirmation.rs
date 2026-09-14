@@ -7,12 +7,13 @@ use tokio::sync::oneshot;
 
 use crate::MainWindow;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct State {
     epoch: u64,
     next_id: i32,
     presented: bool,
     pending: Option<(i32, oneshot::Sender<bool>)>,
+    visibility_observer: Option<Arc<dyn Fn(bool) + Send + Sync>>,
 }
 
 impl State {
@@ -83,8 +84,14 @@ impl ConfirmationBroker {
         main.on_confirmation_cancelled(move || cancel.invalidate());
         let visibility = broker.clone();
         main.on_confirmation_visibility_changed(move |shown| {
-            if let Ok(mut state) = visibility.state.lock() {
+            let observer = if let Ok(mut state) = visibility.state.lock() {
                 state.presented = shown;
+                state.visibility_observer.clone()
+            } else {
+                None
+            };
+            if let Some(observer) = observer {
+                observer(shown);
             }
         });
         let cancel = broker.clone();
@@ -134,6 +141,13 @@ impl ConfirmationBroker {
                 main.set_confirmation_shown(false);
             }
         });
+    }
+
+    /// Observes modal visibility without replacing the broker's Slint callback.
+    pub fn on_blocking_changed(&self, observer: impl Fn(bool) + Send + Sync + 'static) {
+        if let Ok(mut state) = self.state.lock() {
+            state.visibility_observer = Some(Arc::new(observer));
+        }
     }
 
     fn resolve(&self, id: i32, accepted: bool) {

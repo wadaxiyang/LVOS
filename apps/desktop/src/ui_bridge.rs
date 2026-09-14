@@ -8,9 +8,11 @@ pub trait UiDispatcher: Clone + Send + Sync + 'static {
     fn dispatch(&self, callback: impl FnOnce() + Send + 'static) -> Result<(), UiDispatchError>;
 }
 
+#[cfg(feature = "ui")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SlintUiDispatcher;
 
+#[cfg(feature = "ui")]
 impl UiDispatcher for SlintUiDispatcher {
     fn dispatch(&self, callback: impl FnOnce() + Send + 'static) -> Result<(), UiDispatchError> {
         slint::invoke_from_event_loop(callback).map_err(|_| UiDispatchError::EventLoopUnavailable)

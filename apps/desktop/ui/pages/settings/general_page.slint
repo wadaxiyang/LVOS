@@ -13,11 +13,11 @@ export component GeneralSettingsPage inherits VerticalLayout {
     in-out property <bool> launch-minimized;
     in-out property <int> popup-idle-timeout-index: 2;
 
-    callback persist-network-settings(string, int, bool, bool) -> string;
-    callback update-global-hotkey(string) -> string;
-    callback update-start-at-login(bool) -> string;
-    callback update-launch-minimized(bool) -> string;
-    callback update-popup-idle-timeout(int) -> string;
+    callback persist-network-settings(string, int, bool, bool);
+    callback update-global-hotkey(string);
+    callback update-start-at-login(bool);
+    callback update-launch-minimized(bool);
+    callback update-popup-idle-timeout(int);
 
     callback feedback(string, FeedbackKind);
     changed global-hotkey => { hotkey.text = root.global-hotkey; }
@@ -35,27 +35,22 @@ export component GeneralSettingsPage inherits VerticalLayout {
                 hotkey := FluentTextField { enabled: root.interaction-enabled; horizontal-stretch: 1; text: root.global-hotkey; accessible-role: groupbox; accessible-label: "Global shortcut"; }
                 FluentButton { enabled: root.interaction-enabled; text: "Save shortcut"; clicked => {
                     let draft = hotkey.text;
-                    let error = root.update-global-hotkey(draft);
-                    if error == "" { root.global-hotkey = draft; }
-                    // The host also reports a changed registration when saving its preference fails.
-                    hotkey.text = root.global-hotkey;
-                    let success = error == ""; root.feedback(success ? "Shortcut saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    root.feedback("Saving shortcut…", FeedbackKind.info);
+                    root.update-global-hotkey(draft);
                 } }
             }
             SettingRow {
                 title: "Start at login"; description: "Open LVOS when you sign in to this computer.";
                 FluentSwitch { enabled: root.interaction-enabled; checked <=> root.start-at-login; accessible-label: "Start at login"; toggled => {
-                    let error = root.update-start-at-login(self.checked);
-                    if error != "" { self.checked = !self.checked; }
-                    let success = error == ""; root.feedback(success ? "Startup preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    root.feedback("Saving startup preference…", FeedbackKind.info);
+                    root.update-start-at-login(self.checked);
                 } }
             }
             SettingRow {
                 title: "Launch minimized"; description: "Keep LVOS in the system tray on startup.";
                 FluentSwitch { enabled: root.interaction-enabled; checked <=> root.launch-minimized; accessible-label: "Launch minimized"; toggled => {
-                    let error = root.update-launch-minimized(self.checked);
-                    if error != "" { self.checked = !self.checked; }
-                    let success = error == ""; root.feedback(success ? "Launch preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    root.feedback("Saving launch preference…", FeedbackKind.info);
+                    root.update-launch-minimized(self.checked);
                 } }
             }
             SettingRow {
@@ -69,9 +64,8 @@ export component GeneralSettingsPage inherits VerticalLayout {
                     accessible-label: "Lookup popup idle retention";
                     selected(value) => {
                         let selected-index = self.current-index;
-                        let error = root.update-popup-idle-timeout(selected-index);
-                        let success = error == "";
-                        root.feedback(success ? "Lookup popup retention saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                        root.feedback("Saving lookup popup retention…", FeedbackKind.info);
+                        root.update-popup-idle-timeout(selected-index);
                     }
                 }
             }
@@ -88,8 +82,8 @@ export component GeneralSettingsPage inherits VerticalLayout {
             proxy-address := FluentTextField { enabled: root.interaction-enabled; text <=> root.proxy-address; placeholder_text: "127.0.0.1:7890"; accessible-role: groupbox; accessible-label: "Proxy address"; }
             HorizontalLayout { alignment: end;
                 FluentButton { enabled: root.interaction-enabled; text: "Save network"; clicked => {
-                    let error = root.persist-network-settings(proxy-address.text, proxy-type.current-index, root.provider-proxy-enabled, root.update-proxy-enabled);
-                    let success = error == ""; root.feedback(success ? "Network settings saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    root.feedback("Saving network settings…", FeedbackKind.info);
+                    root.persist-network-settings(proxy-address.text, proxy-type.current-index, root.provider-proxy-enabled, root.update-proxy-enabled);
                 } }
             }
         }

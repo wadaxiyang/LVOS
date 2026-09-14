@@ -9,7 +9,7 @@ export component UpdateSettingsPage inherits VerticalLayout {
     in-out property <bool> update-proxy-enabled: false;
     in property <string> update-status: "No update check performed";
 
-    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback persist-network-settings(string, int, bool, bool);
     callback check-update-requested;
 
     callback feedback(string, FeedbackKind);
@@ -27,8 +27,8 @@ export component UpdateSettingsPage inherits VerticalLayout {
             }
             HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
                 FluentButton { enabled: root.interaction-enabled; text: "Save network"; clicked => {
-                    let error = root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked);
-                    let success = error == ""; root.feedback(success ? "Network settings saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    root.feedback("Saving network settings…", FeedbackKind.info);
+                    root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked);
                 } }
                 FluentButton { enabled: root.interaction-enabled; text: "Check for updates"; primary: true; clicked => { root.check-update-requested(); } }
             }

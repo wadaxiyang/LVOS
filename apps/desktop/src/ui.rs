@@ -171,6 +171,7 @@ pub(crate) struct PermissionHost {
 type MainCreatedHook = Rc<dyn Fn(Rc<MainWindow>, crate::ConfirmationBroker)>;
 type PopupCreatedHook = Rc<dyn Fn(Rc<QuickLookupPopup>)>;
 type PermissionCreatedHook = Rc<dyn Fn(Rc<PermissionWindow>)>;
+type PopupDismissedHook = Rc<dyn Fn()>;
 
 struct UiHosts {
     popup: Option<PopupHost>,
@@ -181,6 +182,7 @@ struct UiHosts {
     main_created_hooks: Vec<MainCreatedHook>,
     popup_created_hooks: Vec<PopupCreatedHook>,
     permission_created_hooks: Vec<PermissionCreatedHook>,
+    popup_dismissed_hooks: Vec<PopupDismissedHook>,
 }
 
 impl UiHosts {
@@ -194,6 +196,7 @@ impl UiHosts {
             main_created_hooks: Vec::new(),
             popup_created_hooks: Vec::new(),
             permission_created_hooks: Vec::new(),
+            popup_dismissed_hooks: Vec::new(),
         }
     }
 }
@@ -359,6 +362,13 @@ impl UiProcessCoordinator {
         if let Some(permission) = existing {
             hook(permission);
         }
+    }
+
+    pub fn on_popup_dismissed(&self, hook: impl Fn() + 'static) {
+        self.hosts
+            .borrow_mut()
+            .popup_dismissed_hooks
+            .push(Rc::new(hook));
     }
 
     fn ensure_main(&self) -> Result<Rc<MainWindow>, UiControllerError> {
@@ -603,6 +613,27 @@ impl UiProcessCoordinator {
         popup.show().map_err(UiControllerError::Platform)?;
         tracing::debug!(event = "popup_shown");
         Ok(())
+    }
+
+    /// Replaces content only while an existing Popup is Active.
+    ///
+    /// This path never creates, re-shows, or restarts a GUI host, so a late business result cannot
+    /// resurrect a Popup the user already dismissed.
+    #[must_use]
+    pub fn update_lookup_card_if_active(&self, state: &LookupCardState) -> bool {
+        let popup = {
+            let hosts = self.hosts.borrow();
+            if hosts.popup_lifecycle.state != PopupLifecycleState::Active {
+                return false;
+            }
+            hosts.popup.as_ref().map(|host| host.popup.clone())
+        };
+        let Some(popup) = popup else {
+            return false;
+        };
+        apply_lookup_state_to_popup(&popup, state);
+        tracing::debug!(event = "popup_updated_without_presentation");
+        true
     }
 
     /// Presents the Provider-configuration error for a captured source.
@@ -895,7 +926,7 @@ fn dismiss_popup_hosts(weak_hosts: &Weak<RefCell<UiHosts>>) {
 }
 
 fn dismiss_popup_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiControllerError> {
-    let (popup, generation, timeout) = {
+    let (popup, generation, timeout, hooks) = {
         let mut hosts = hosts.borrow_mut();
         if hosts.popup_lifecycle.state != PopupLifecycleState::Active {
             return Ok(());
@@ -905,9 +936,17 @@ fn dismiss_popup_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiContro
         };
         dismiss_popup(&popup)?;
         let generation = hosts.popup_lifecycle.warm();
-        (popup, generation, hosts.popup_idle_timeout)
+        (
+            popup,
+            generation,
+            hosts.popup_idle_timeout,
+            hosts.popup_dismissed_hooks.clone(),
+        )
     };
     drop(popup);
+    for hook in hooks {
+        hook();
+    }
     tracing::debug!(
         event = "popup_warm_started",
         generation,

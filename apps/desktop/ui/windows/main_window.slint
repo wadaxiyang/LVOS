@@ -59,6 +59,7 @@ export component MainWindow inherits Window {
     in-out property <bool> start-at-login;
     in-out property <bool> launch-minimized;
     in-out property <int> popup-idle-timeout-index: 2;
+    in-out property <bool> operation-pending: false;
 
     callback history-search(string);
     callback favorites-search(string);
@@ -66,7 +67,7 @@ export component MainWindow inherits Window {
     callback clear-history-requested;
     callback validate-provider-settings(string, string) -> string;
     callback persist-provider-settings(string, string, bool);
-    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback persist-network-settings(string, int, bool, bool);
     callback test-provider(string, string);
     callback login-requested(string, string, string);
     callback logout-requested;
@@ -77,10 +78,10 @@ export component MainWindow inherits Window {
     callback export-data-requested;
     callback import-data-requested;
     callback check-update-requested;
-    callback update-global-hotkey(string) -> string;
-    callback update-start-at-login(bool) -> string;
-    callback update-launch-minimized(bool) -> string;
-    callback update-popup-idle-timeout(int) -> string;
+    callback update-global-hotkey(string);
+    callback update-start-at-login(bool);
+    callback update-launch-minimized(bool);
+    callback update-popup-idle-timeout(int);
 
     in-out property <bool> confirmation-shown: false;
     in property <int> confirmation-id;
@@ -150,7 +151,7 @@ export component MainWindow inherits Window {
             if root.active-page == 0: history-page := HistoryPage {
                 in property <int> restore-request: root.restore-epoch;
                 changed restore-request => { self.restore-focus(); }
-                interaction-enabled: !root.confirmation-blocking;
+                interaction-enabled: !root.confirmation-blocking && !root.operation-pending;
                 search-text <=> root.search-text;
                 history-records: root.history-records;
                 history-search(value) => { root.history-search(value); }
@@ -160,7 +161,7 @@ export component MainWindow inherits Window {
             if root.active-page == 1: favorites-page := FavoritesPage {
                 in property <int> restore-request: root.restore-epoch;
                 changed restore-request => { self.restore-focus(); }
-                interaction-enabled: !root.confirmation-blocking;
+                interaction-enabled: !root.confirmation-blocking && !root.operation-pending;
                 search-text <=> root.search-text;
                 favorite-records: root.favorite-records;
                 favorites-search(value) => { root.favorites-search(value); }
@@ -169,7 +170,7 @@ export component MainWindow inherits Window {
             if root.active-page == 2: settings := SettingsPage {
                 in property <int> restore-request: root.restore-epoch;
                 changed restore-request => { self.restore-focus(root.confirmation-focus-target, root.confirmation-device-id); }
-                interaction-enabled: !root.confirmation-blocking;
+                interaction-enabled: !root.confirmation-blocking && !root.operation-pending;
                 settings-page <=> root.settings-page;
                 settings-scroll-y <=> root.settings-scroll-y;
                 settings-feedback-kind <=> root.settings-feedback-kind;
@@ -193,7 +194,7 @@ export component MainWindow inherits Window {
                 clear-history-requested() => { root.clear-history-requested(); }
                 validate-provider-settings(model, api-key) => { return root.validate-provider-settings(model, api-key); }
                 persist-provider-settings(model, api-key, use-proxy) => { root.persist-provider-settings(model, api-key, use-proxy); }
-                persist-network-settings(address, kind, provider-proxy, update-proxy) => { return root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
+                persist-network-settings(address, kind, provider-proxy, update-proxy) => { root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
                 test-provider(model, api-key) => { root.test-provider(model, api-key); }
                 login-requested(server, username, password) => { root.login-requested(server, username, password); }
                 logout-requested() => { root.logout-requested(); }
@@ -204,10 +205,10 @@ export component MainWindow inherits Window {
                 export-data-requested() => { root.export-data-requested(); }
                 import-data-requested() => { root.import-data-requested(); }
                 check-update-requested() => { root.check-update-requested(); }
-                update-global-hotkey(shortcut) => { return root.update-global-hotkey(shortcut); }
-                update-start-at-login(enabled) => { return root.update-start-at-login(enabled); }
-                update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
-                update-popup-idle-timeout(index) => { return root.update-popup-idle-timeout(index); }
+                update-global-hotkey(shortcut) => { root.update-global-hotkey(shortcut); }
+                update-start-at-login(enabled) => { root.update-start-at-login(enabled); }
+                update-launch-minimized(enabled) => { root.update-launch-minimized(enabled); }
+                update-popup-idle-timeout(index) => { root.update-popup-idle-timeout(index); }
             }
         }
     }

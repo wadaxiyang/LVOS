@@ -5,6 +5,9 @@
   and an isolated embedded-resource smoke run. The Windows/macOS Cargo CI matrix also passes
   at the S6 boundary. These checks do not establish macOS native permission/focus recovery,
   real IME/clipboard editing, screen-reader modal behavior, or mixed-display DPI acceptance.
+- The Agent/UI process split is packaged with the Agent as the macOS bundle executable, but the
+  required macOS 15 arm64 real-device acceptance still has to confirm that Accessibility consent
+  and the actual selection-capture action are attributed to that Agent identity after restart.
 - A Windows release workload (200 synthetic records, page/scroll activity, 120 generated-window
   cycles, ten seconds idle; three runs per revision) showed no clear regression outside its
   observed baseline envelope. It is a short diagnostic, not a long-duration memory test or an

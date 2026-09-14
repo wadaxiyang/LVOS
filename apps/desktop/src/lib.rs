@@ -1,6 +1,7 @@
 //! LVOS Desktop runtime orchestration.
 
 mod application;
+#[cfg(feature = "ui")]
 mod confirmation;
 mod db_worker;
 mod device_identity;
@@ -12,6 +13,7 @@ mod preferences;
 mod sync_engine;
 mod sync_session;
 mod sync_transport;
+#[cfg(feature = "ui")]
 mod ui;
 mod ui_bridge;
 mod ui_service;
@@ -22,6 +24,7 @@ pub use application::{
     ApplicationError, DesktopApplication, NetworkPreferences, ProviderPreferences, ProxyKind,
     default_server_url,
 };
+#[cfg(feature = "ui")]
 pub use confirmation::{ConfirmationBroker, ConfirmationRequest};
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
 pub use device_identity::{DeviceIdentityError, DeviceIdentityManager};
@@ -46,16 +49,19 @@ pub use sync_transport::{
     FavoriteConflict, HttpSyncTransport, LoginCredentials, LoginIdentity, RefreshedTokens,
     RemoteDevice, RevisionStreamEvent, ServerCompatibility, SyncTransport, TransportError,
 };
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "ui", target_os = "macos"))]
 pub use ui::show_permission_window;
+#[cfg(feature = "ui")]
 pub use ui::{
     DeviceRecord, FeedbackKind, MainWindow, PermissionWindow, PopupLifecycleState,
     QuickLookupPopup, UiController, UiControllerDispatcher, UiControllerError,
     UiProcessCoordinator, UiRecord, ui_record,
 };
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(all(feature = "ui", any(target_os = "macos", target_os = "windows")))]
 pub use ui::{show_captured_provider_error, show_lookup_state};
-pub use ui_bridge::{SlintUiDispatcher, UiDispatchError, UiDispatcher};
+#[cfg(feature = "ui")]
+pub use ui_bridge::SlintUiDispatcher;
+pub use ui_bridge::{UiDispatchError, UiDispatcher};
 pub use ui_service::{UiDataError, UiDataService, UiRecordData};
 pub use ui_state::{
     DeviceUiState, LookupCardState, MainSection, PopupFocusState, SettingsSection, SyncUiState,

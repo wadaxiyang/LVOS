@@ -1,9 +1,11 @@
 [workspace]
 members = [
     "apps/desktop",
+    "apps/agent",
     "apps/server",
     "crates/auth",
     "crates/core",
+    "crates/ipc",
     "crates/platform",
     "crates/storage",
     "crates/sync",
@@ -61,3 +63,4 @@ unicode-casefold = "0.2.0"
 unicode-normalization = "0.1.25"
 unicode-script = "0.5.8"
 uuid = { version = "1.24.0", features = ["serde", "v4", "v7"] }
+winit = "0.30.13"

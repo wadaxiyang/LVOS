@@ -36,8 +36,13 @@ export component TranslationSettingsPage inherits VerticalLayout {
                 FluentButton { enabled: root.interaction-enabled; text: "Test connection"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
                 FluentButton { enabled: root.interaction-enabled; text: "Save"; primary: true; clicked => {
                     let error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
-                    root.feedback(error, error == "" ? FeedbackKind.info : FeedbackKind.error);
-                    if error == "" { root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked); tokenhub-key.text = ""; }
+                    if error == "" {
+                        root.feedback("Saving Provider settings…", FeedbackKind.info);
+                        root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked);
+                        tokenhub-key.text = "";
+                    } else {
+                        root.feedback(error, FeedbackKind.error);
+                    }
                 } }
             }
         }

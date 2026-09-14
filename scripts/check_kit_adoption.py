@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UI = "apps/desktop/ui/"
 KIT_URL = "https://github.com/wadaxiyang/Quadrant-Kit.git"
 KIT_REV = "20cc9d77b737d1326d4320a42f7d26f9a799298f"
-KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.1"}
+KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.1", "optional": True}
 # These are public 0.1.1 exports, not private implementation names.
 KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
 # Exact product compositions, rather than an exemption for a whole directory.
@@ -176,7 +176,12 @@ def check_dependencies(documents: dict[str, dict]) -> None:
                     raise ValueError("Kit must be the exact official build-only dependency")
                 count += 1
             if package in {"slint", "slint-build"}:
-                if value == {"workspace": True} and name == "apps/desktop/Cargo.toml":
+                if (
+                    isinstance(value, dict)
+                    and value.get("workspace") is True
+                    and set(value) <= {"workspace", "optional"}
+                    and name == "apps/desktop/Cargo.toml"
+                ):
                     continue
                 version = value.get("version") if isinstance(value, dict) else value
                 if version != "=1.17.1" or (isinstance(value, dict) and any(k in value for k in ("git", "path", "branch", "tag", "rev"))):
@@ -209,7 +214,7 @@ def main() -> int:
         check_dependencies(docs)
         check_locks(*(tomllib.loads((ROOT / name).read_text(encoding="utf-8")) for name in ("Cargo.lock", "Cargo.server.lock")))
         scan_ui({name: (ROOT / name).read_text(encoding="utf-8") for name in paths if name.endswith(".slint")})
-        host = (ROOT / "apps/desktop/src/main.rs").read_text(encoding="utf-8")
+        host = (ROOT / "apps/desktop/src/ui_session.rs").read_text(encoding="utf-8")
         if re.search(r"\b(?:AsyncMessageDialog|MessageDialog|MessageButtons|MessageDialogResult)\b", host):
             raise ValueError("application confirmations must use the Kit broker")
         build = (ROOT / "apps/desktop/build.rs").read_text(encoding="utf-8")

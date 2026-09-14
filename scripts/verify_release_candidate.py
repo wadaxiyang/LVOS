@@ -70,8 +70,9 @@ def verify_macos(path: Path, version: str) -> None:
         names = {entry.filename for entry in entries}
         plist_name = "LVOS.app/Contents/Info.plist"
         binary_name = "LVOS.app/Contents/MacOS/LVOS"
-        if plist_name not in names or binary_name not in names:
-            raise ValueError("macOS archive lacks the LVOS bundle identity or executable")
+        ui_binary_name = "LVOS.app/Contents/MacOS/lvos-ui"
+        if plist_name not in names or binary_name not in names or ui_binary_name not in names:
+            raise ValueError("macOS archive lacks the LVOS Agent/UI process pair")
         metadata = plistlib.loads(archive.read(plist_name))
         expected = {
             "CFBundleDisplayName": "LVOS",
@@ -82,11 +83,12 @@ def verify_macos(path: Path, version: str) -> None:
         }
         if any(metadata.get(key) != value for key, value in expected.items()):
             raise ValueError("macOS Info.plist disagrees with frozen release identity")
-        binary = archive.read(binary_name)
-        if len(binary) < 8 or binary[:4] != b"\xcf\xfa\xed\xfe":
-            raise ValueError("macOS executable is not a 64-bit little-endian Mach-O")
-        if struct.unpack_from("<I", binary, 4)[0] != 0x0100000C:
-            raise ValueError("macOS executable is not arm64")
+        for name in (binary_name, ui_binary_name):
+            binary = archive.read(name)
+            if len(binary) < 8 or binary[:4] != b"\xcf\xfa\xed\xfe":
+                raise ValueError(f"macOS executable is not a 64-bit little-endian Mach-O: {name}")
+            if struct.unpack_from("<I", binary, 4)[0] != 0x0100000C:
+                raise ValueError(f"macOS executable is not arm64: {name}")
 
 
 def verify_windows(path: Path) -> None:
@@ -94,21 +96,23 @@ def verify_windows(path: Path) -> None:
         verify_notices(archive)
         entries = safe_entries(archive)
         files = [entry for entry in entries if not entry.is_dir()]
-        if {entry.filename for entry in files} != {"LVOS.exe", *NOTICE_FILES}:
-            raise ValueError("Windows archive must contain LVOS.exe and the exact notice inventory")
-        binary = archive.read("LVOS.exe")
-    if len(binary) < 0x100 or binary[:2] != b"MZ":
-        raise ValueError("Windows executable lacks an MZ header")
-    pe_offset = struct.unpack_from("<I", binary, 0x3C)[0]
-    if pe_offset + 96 > len(binary) or binary[pe_offset : pe_offset + 4] != b"PE\0\0":
-        raise ValueError("Windows executable lacks a valid PE header")
-    if struct.unpack_from("<H", binary, pe_offset + 4)[0] != 0x8664:
-        raise ValueError("Windows executable is not x86_64")
-    optional = pe_offset + 24
-    if struct.unpack_from("<H", binary, optional)[0] != 0x20B:
-        raise ValueError("Windows executable is not PE32+")
-    if struct.unpack_from("<H", binary, optional + 68)[0] != 2:
-        raise ValueError("Windows executable is not a GUI subsystem binary")
+        binary_names = {"LVOS.exe", "lvos-ui.exe"}
+        if {entry.filename for entry in files} != {*binary_names, *NOTICE_FILES}:
+            raise ValueError("Windows archive must contain the Agent/UI process pair and notices")
+        binaries = {name: archive.read(name) for name in binary_names}
+    for name, binary in binaries.items():
+        if len(binary) < 0x100 or binary[:2] != b"MZ":
+            raise ValueError(f"Windows executable lacks an MZ header: {name}")
+        pe_offset = struct.unpack_from("<I", binary, 0x3C)[0]
+        if pe_offset + 96 > len(binary) or binary[pe_offset : pe_offset + 4] != b"PE\0\0":
+            raise ValueError(f"Windows executable lacks a valid PE header: {name}")
+        if struct.unpack_from("<H", binary, pe_offset + 4)[0] != 0x8664:
+            raise ValueError(f"Windows executable is not x86_64: {name}")
+        optional = pe_offset + 24
+        if struct.unpack_from("<H", binary, optional)[0] != 0x20B:
+            raise ValueError(f"Windows executable is not PE32+: {name}")
+        if struct.unpack_from("<H", binary, optional + 68)[0] != 2:
+            raise ValueError(f"Windows executable is not a GUI subsystem binary: {name}")
 
 
 def verify_checksums(directory: Path, expected_names: list[str]) -> None:

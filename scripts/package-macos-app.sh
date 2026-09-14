@@ -6,19 +6,21 @@ if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
     exit 1
 fi
 
-cargo build --release --locked -p lvos
+cargo build --release --locked -p lvos-agent -p lvos
 
 readonly version="$(python3 scripts/workspace_version.py)"
 
 bundle="target/release/LVOS.app"
 contents="${bundle}/Contents"
 binary="${contents}/MacOS/LVOS"
+ui_binary="${contents}/MacOS/lvos-ui"
 archive="target/release-package/LVOS-${version}-macos-arm64.zip"
 
 rm -rf "${bundle}"
 mkdir -p "${contents}/MacOS" "${contents}/Resources"
-cp target/release/lvos "${binary}"
-chmod 755 "${binary}"
+cp target/release/lvos-agent "${binary}"
+cp target/release/lvos-ui "${ui_binary}"
+chmod 755 "${binary}" "${ui_binary}"
 
 cat > "${contents}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

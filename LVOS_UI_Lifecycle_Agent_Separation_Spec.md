@@ -172,10 +172,10 @@ Quick Lookup Popup 继续使用 Slint + Quadrant-Kit。
 │  Update Coordination                              │
 │  Preferences                                      │
 │  IPC Server                                       │
+│  Native Tray / Hotkey Event Loop                  │
 │                                                   │
 │  NO Slint                                         │
 │  NO Quadrant-Kit                                  │
-│  NO winit                                         │
 │  NO femtovg                                       │
 └──────────────────────┬────────────────────────────┘
                        │ Local IPC
@@ -232,13 +232,16 @@ Quick Lookup Popup 继续使用 Slint + Quadrant-Kit。
 - IPC Server
 - 启动与管理 `lvos-ui`
 
-### Forbidden Dependencies
+### Native Event Loop and Forbidden Dependencies
+
+Agent 必须拥有独立的原生事件循环，用于 Tray、Global Hotkey、第二实例激活和平台权限动作。Windows 可使用 winit user event 将后台任务 marshal 到事件循环线程；macOS 必须在进程主线程运行该循环并执行 AppKit 要求的主线程工作。
+
+该事件循环属于后台平台集成，不得创建窗口或初始化 UI renderer。
 
 `lvos-agent` 的运行路径中不得初始化：
 
 ```text
 slint
-winit
 femtovg
 Quadrant-Kit
 ```
@@ -1005,6 +1008,8 @@ else:
 
 UI process 自身也应有 secondary instance protection，避免异常情况下出现两个 GUI host。
 
+实现可由 Agent session 的 authenticated handshake 提供保护：只有处于 `Starting(generation)` 的唯一连接能被接受；重复、旧 generation 或手工启动且没有 Agent launch capability 的 UI 必须拒绝并退出。
+
 ---
 
 # 20. IPC Boundary
@@ -1030,6 +1035,29 @@ Unix Domain Socket
 ```
 
 也可以采用一个跨平台 local IPC abstraction。
+
+协议必须包含：
+
+- 固定协议版本，版本不匹配时 fail closed；
+- 每个 Agent session 的随机 session ID 与高熵 authentication capability；
+- 每个 envelope 单调递增的 sequence 与唯一 message ID；
+- UI request ID，以及带 `response_to`、operation name、success / failure、用户反馈的异步响应；
+- `Hello → HandshakeAccepted → Snapshot → Ready` 启动握手；
+- UI 必须完整应用 Snapshot 后才能发送 Ready；
+- Snapshot revision 与 Patch 的 `base_revision → revision` 顺序约束；断档时 UI 请求新 Snapshot；
+- Agent 或 UI 断线检测与有界 shutdown；
+- Windows Named Pipe 禁止远程 client；macOS Unix socket 位于用户数据目录并设置用户级 `0600` 权限。
+
+所有 Settings callback 只提交异步 IPC request，不得在 Slint callback 内阻塞等待 Agent。GUI 在 request pending 时禁用相关交互，收到关联响应后显示结果；失败时用最新 Agent snapshot / patch 恢复 authoritative value。
+
+“GUI 正准备退出，新查询同时到达”必须由显式状态机处理：
+
+```text
+Stopped → Starting(generation N) → Ready(generation N)
+Ready(generation N) → Stopping(generation N) → Stopped
+```
+
+Agent 在 `Stopping` 时不得仅凭 OS process alive 判断可发送，也不得并行启动 N+1。必须等待 N 真正退出，再由 Agent-owned 单调 generation 启动 N+1。
 
 ---
 
@@ -1433,7 +1461,7 @@ Agent obtains loading state
  ↓
 ensure lvos-ui process
  ↓
-send ShowLookup(Loading)
+send BeginLookup(display_session_id, Loading)
  ↓
 UI ensure PopupHost
  ↓
@@ -1441,10 +1469,12 @@ Popup Active
  ↓
 Agent obtains Ready/Error
  ↓
-send ShowLookup(Ready/Error)
+send UpdateLookup(display_session_id, Ready/Error)
  ↓
 UI updates existing Popup
 ```
+
+`BeginLookup` 是唯一允许创建 UI process、创建 PopupHost 和显示 Popup 的查询消息。`UpdateLookup` 必须同时匹配 query ID 与 display session ID，并且只能更新现有 Active Popup；不得创建、重新显示或重启 UI。用户关闭 Popup 或 UI process 后才到达的旧结果只完成 Agent 侧业务，不得把界面自动弹回。
 
 ---
 
@@ -1459,7 +1489,7 @@ Agent cache hit
  ↓
 ensure UI
  ↓
-ShowLookup(Ready)
+BeginLookup(display_session_id, Ready)
 ```
 
 不需要额外 loading round-trip。
@@ -1681,7 +1711,7 @@ no Permission UI
 - `lvos-ui` 进程必须不存在；
 - Agent 不得持有 Slint Window；
 - Agent 不得初始化 femtovg；
-- Agent 不得初始化 winit event loop。
+- Agent 的 native event loop 不得创建窗口或加载 Slint / Quadrant-Kit / femtovg。
 
 ### Memory Target
 
@@ -1860,6 +1890,11 @@ macOS：
 - outside click monitor
 - permission activation
 - focus behavior
+- 从打包后的 `LVOS.app` 启动，确认 Accessibility 列表与系统审计中的责任进程是 Agent 主可执行文件；
+- 授权后在其他应用选中文本并触发热键，确认实际发送复制动作和读取选区的仍是 Agent，而不是 `lvos-ui`；
+- 退出 / 重启 Agent 后重复验证授权恢复、Tray 与 Hotkey 都在 macOS 主线程事件循环上工作。
+
+上述 macOS 权限与进程身份必须在 macOS 15 arm64 实机完成，交叉编译、代码签名检查和模拟测试不能替代该验收。
 
 ---
 
@@ -2045,6 +2080,8 @@ lvos-ui
 ```
 
 建立 IPC。
+
+同步修改发布入口：Windows 便携包必须包含 Agent 入口 `LVOS.exe` 与同目录 `lvos-ui.exe`；macOS Bundle 的 `CFBundleExecutable` 必须指向 Agent，`Contents/MacOS/lvos-ui` 作为同 Bundle helper 随包发布。启动项、Tray、Hotkey、权限申请与选区捕获均由 Agent 身份执行。
 
 ---
 

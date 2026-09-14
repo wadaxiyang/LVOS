@@ -101,31 +101,48 @@ fn connect(ui: &MainWindow, signals: &Rc<Signals>) {
     let s = Rc::clone(signals);
     ui.on_export_data_requested(move || s.exports.set(s.exports.get() + 1));
     let s = Rc::clone(signals);
+    let weak = ui.as_weak();
     ui.on_persist_network_settings(move |address, kind, provider, update| {
         s.network_args_valid
             .set(address == "127.0.0.1:7890" && kind == 1 && provider && update);
-        SharedString::default()
+        if let Some(ui) = weak.upgrade() {
+            ui.set_settings_feedback_kind(FeedbackKind::Success);
+            ui.set_settings_error("Network settings saved.".into());
+        }
     });
     let s = Rc::clone(signals);
     ui.on_check_update_requested(move || s.updates.set(s.updates.get() + 1));
     let s = Rc::clone(signals);
+    let weak = ui.as_weak();
     ui.on_update_start_at_login(move |_| {
         s.startup_calls.set(s.startup_calls.get() + 1);
-        "Fixture startup error".into()
+        if let Some(ui) = weak.upgrade() {
+            ui.set_start_at_login(false);
+            ui.set_settings_feedback_kind(FeedbackKind::Error);
+            ui.set_settings_error("Fixture startup error".into());
+        }
     });
     let s = Rc::clone(signals);
     ui.on_clear_history_requested(move || s.clear_calls.set(s.clear_calls.get() + 1));
-    ui.on_update_launch_minimized(|_| SharedString::default());
+    let weak = ui.as_weak();
+    ui.on_update_launch_minimized(move |_| {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_settings_feedback_kind(FeedbackKind::Success);
+            ui.set_settings_error("Launch preference saved.".into());
+        }
+    });
     let s = Rc::clone(signals);
     let weak = ui.as_weak();
     ui.on_update_global_hotkey(move |display| {
         if s.shortcut_partial.get() {
             if let Some(ui) = weak.upgrade() {
                 ui.set_global_hotkey(display);
+                ui.set_settings_feedback_kind(FeedbackKind::Error);
+                ui.set_settings_error("Fixture shortcut preference error".into());
             }
-            "Fixture shortcut preference error".into()
-        } else {
-            "Fixture shortcut error".into()
+        } else if let Some(ui) = weak.upgrade() {
+            ui.set_settings_feedback_kind(FeedbackKind::Error);
+            ui.set_settings_error("Fixture shortcut error".into());
         }
     });
 }

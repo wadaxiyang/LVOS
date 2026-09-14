@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DESKTOP_MAIN = ROOT / "apps" / "desktop" / "src" / "main.rs"
+DESKTOP_MAIN = ROOT / "apps" / "desktop" / "src" / "ui_session.rs"
 DESKTOP_UI = ROOT / "apps" / "desktop" / "ui" / "app.slint"
 MAIN_WINDOW_UI = DESKTOP_UI.parent / "windows" / "main_window.slint"
 

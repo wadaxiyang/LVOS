@@ -23,9 +23,18 @@ def main() -> None:
         archive = ROOT / f"target/release-package/LVOS-{version}-macos-arm64.zip"
         verify_macos(archive, version)
     elif platform.system() == "Windows" and platform.machine().lower() in {"amd64", "x86_64"}:
-        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "lvos"], cwd=ROOT, check=True)
+        subprocess.run(
+            ["cargo", "build", "--release", "--locked", "-p", "lvos-agent", "-p", "lvos"],
+            cwd=ROOT,
+            check=True,
+        )
         archive = ROOT / f"target/release-package/LVOS-{version}-windows-x86_64.zip"
-        create_release_zip(ROOT / "target/release/lvos.exe", archive, "LVOS.exe")
+        create_release_zip(
+            ROOT / "target/release/lvos-agent.exe",
+            archive,
+            "LVOS.exe",
+            {"lvos-ui.exe": ROOT / "target/release/lvos-ui.exe"},
+        )
         verify_windows(archive)
     else:
         raise SystemExit("native package verification requires Windows x86_64 or macOS arm64")

@@ -31,9 +31,20 @@ def _entry(archive_name: str, mode: int, *, directory: bool = False) -> zipfile.
     return info
 
 
-def create_release_zip(source: Path, output: Path, archive_name: str) -> None:
+def create_release_zip(
+    source: Path,
+    output: Path,
+    archive_name: str,
+    extra_files: dict[str, Path] | None = None,
+) -> None:
     if not source.exists() or not archive_name or "/" in archive_name or "\\" in archive_name:
         raise ValueError("invalid release ZIP source or archive name")
+    extra_files = extra_files or {}
+    if any(
+        not path.is_file() or not name or "/" in name or "\\" in name
+        for name, path in extra_files.items()
+    ) or archive_name in extra_files:
+        raise ValueError("invalid release ZIP extra file")
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
     if temporary.exists():
@@ -60,6 +71,9 @@ def create_release_zip(source: Path, output: Path, archive_name: str) -> None:
                     elif path.is_file():
                         mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
                         archive.writestr(_entry(name, mode), path.read_bytes())
+            for name, path in sorted(extra_files.items()):
+                mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
+                archive.writestr(_entry(name, mode), path.read_bytes())
         temporary.replace(output)
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -71,9 +85,27 @@ def main() -> int:
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--archive-name", required=True)
+    parser.add_argument(
+        "--extra",
+        action="append",
+        default=[],
+        metavar="ARCHIVE_NAME=SOURCE",
+        help="add a sibling file to the ZIP; may be repeated",
+    )
     arguments = parser.parse_args()
     try:
-        create_release_zip(arguments.source, arguments.output, arguments.archive_name)
+        extras: dict[str, Path] = {}
+        for value in arguments.extra:
+            name, separator, source = value.partition("=")
+            if not separator or name in extras:
+                raise ValueError("--extra must be unique ARCHIVE_NAME=SOURCE pairs")
+            extras[name] = Path(source)
+        create_release_zip(
+            arguments.source,
+            arguments.output,
+            arguments.archive_name,
+            extras,
+        )
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

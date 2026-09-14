@@ -7,7 +7,8 @@ Dependency license compatibility and audit questions remain open as recorded in
 
 Both platform ZIPs include a top-level `NOTICES/` directory with the LVOS license, the desktop
 dependency notice, the Kit GPL license and derivation notice, and the Fluent System Icons MIT
-license. Windows retains `LVOS.exe`; macOS retains the ad-hoc signed `LVOS.app`. The ZIP creator
+license. Windows includes the Agent entry point `LVOS.exe` beside `lvos-ui.exe`; macOS keeps the
+Agent as `LVOS.app/Contents/MacOS/LVOS` beside its `lvos-ui` helper. The ZIP creator
 and candidate verifier require these notice files; do not strip them when redistributing.
 
 ## Highlights
@@ -19,6 +20,8 @@ and candidate verifier require these notice files; do not strip them when redist
   handling and modal lifecycle protection.
 - Official Git dependency pinned to Kit 0.1.1, embedded UI assets, and isolated server-only builds.
 - Required dependency notices and verification in both platform archives.
+- Background capture, tray, hotkey, sync and storage now live in the Agent process. Slint windows
+  run in the authenticated, on-demand UI helper.
 - Existing local lookup, optional private-server synchronization, portable data and manual updates
   remain available.
 
@@ -44,7 +47,8 @@ Gatekeeper globally.
 
 ## Windows 11 x86_64
 
-The ZIP contains the portable `LVOS.exe`. Microsoft Defender SmartScreen may show an unknown
+The ZIP contains the portable `LVOS.exe` and its required sibling `lvos-ui.exe`; keep both files
+together. Microsoft Defender SmartScreen may show an unknown
 publisher warning. After verifying SHA-256, use **More info** and **Run anyway** only when the file
 came from the official Release page. Do not disable SmartScreen globally.
 

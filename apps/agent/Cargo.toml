@@ -1,0 +1,31 @@
+[package]
+name = "lvos-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+autobins = false
+
+[[bin]]
+name = "lvos-agent"
+path = "src/agent_main.rs"
+
+[dependencies]
+lvos = { path = "../desktop", default-features = false }
+lvos-auth = { path = "../../crates/auth" }
+lvos-core = { path = "../../crates/core" }
+lvos-ipc = { path = "../../crates/ipc" }
+lvos-platform = { path = "../../crates/platform" }
+lvos-storage = { path = "../../crates/storage" }
+lvos-translation = { path = "../../crates/translation" }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "process"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

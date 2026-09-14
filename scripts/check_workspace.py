@@ -12,8 +12,10 @@ import tomllib
 
 EXPECTED_PACKAGES = [
     "lvos",
+    "lvos-agent",
     "lvos-auth",
     "lvos-core",
+    "lvos-ipc",
     "lvos-platform",
     "lvos-server",
     "lvos-storage",

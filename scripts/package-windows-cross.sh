@@ -11,13 +11,16 @@ cargo-xwin build \
     --release \
     --locked \
     --target "${target}" \
+    -p lvos-agent \
     -p lvos
 
 mkdir -p "$(dirname "${output}")"
-cp "target/${target}/release/lvos.exe" "${output}"
-echo "Windows 11 x86_64 executable created: ${output}"
+cp "target/${target}/release/lvos-agent.exe" "${output}"
+cp "target/${target}/release/lvos-ui.exe" "target/windows-package/lvos-ui.exe"
+echo "Windows 11 x86_64 Agent/UI pair created in target/windows-package"
 python3 scripts/create_release_zip.py \
     --source "${output}" \
     --archive-name "LVOS.exe" \
+    --extra "lvos-ui.exe=target/windows-package/lvos-ui.exe" \
     --output "${archive}"
 echo "unsigned Windows x86_64 release archive created: ${archive}"

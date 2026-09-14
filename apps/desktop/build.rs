@@ -1,7 +1,17 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    compile_ui()
+}
+
+#[cfg(not(feature = "ui"))]
+fn compile_ui() -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+#[cfg(feature = "ui")]
+fn compile_ui() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=ui/app.slint");
     println!("cargo:rerun-if-changed=resources/lvos.ico");
-    #[cfg(target_os = "windows")]
+    #[cfg(all(feature = "ui", target_os = "windows"))]
     winresource::WindowsResource::new()
         .set_icon("resources/lvos.ico")
         .compile()?;
