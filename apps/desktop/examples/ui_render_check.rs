@@ -57,11 +57,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     let scenario = args.get(1).map_or("history", String::as_str);
     let output = args.get(2).ok_or("output path required")?.clone();
+    let dark = args.iter().any(|arg| arg == "dark");
+    let reduced = args.iter().any(|arg| arg == "reduced");
     if scenario == "permission" {
-        return render(&lvos::PermissionWindow::new()?, output);
+        let permission = lvos::PermissionWindow::new()?;
+        permission.set_dark_theme(dark);
+        permission.set_reduce_motion(reduced);
+        return render(&permission, output);
     }
     if matches!(scenario, "loading" | "ready" | "error" | "long") {
         let popup = lvos::QuickLookupPopup::new()?;
+        popup.set_dark_theme(dark);
+        popup.set_reduce_motion(reduced);
         popup.set_source_text("invariant".into());
         popup.set_translated_text(if scenario == "long" {
             "这是一段仅用于验证布局与资源的虚构长译文。"
@@ -79,11 +86,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         return render(&popup, output);
     }
     let main = lvos::MainWindow::new()?;
+    main.set_dark_theme(dark);
+    main.set_reduce_motion(reduced);
     main.set_global_hotkey("Alt+D".into());
-    if args.get(3).map(String::as_str) == Some("collapsed") {
+    if args.iter().any(|arg| arg == "collapsed") {
         main.set_sidebar_collapsed(true);
     }
-    if args.get(3).map(String::as_str) == Some("narrow") {
+    if args.iter().any(|arg| arg == "narrow") {
         main.window().set_size(slint::LogicalSize::new(760., 540.));
     }
     let fixture = lvos::UiRecord {

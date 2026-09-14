@@ -47,6 +47,8 @@ fn request(broker: ConfirmationBroker, target: i32, results: Rc<Results>) {
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
     let ui = Rc::new(UiController::new()?);
+    ui.main_window()
+        .set_reduce_motion(std::env::args().any(|arg| arg == "reduced"));
     let results = Rc::new(Results::default());
     let broker = ui.confirmations().clone();
     let r = Rc::clone(&results);

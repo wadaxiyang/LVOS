@@ -1,9 +1,14 @@
 # LVOS V1 known limitations
 
-- The Kit 0.1.1 desktop migration has Windows synthetic interaction evidence. macOS native
-  permission/focus recovery, real IME and clipboard editing, screen-reader modal behavior,
-  mixed-display DPI, and release performance acceptance are still pending. Compilation and
-  screenshots do not establish those results.
+- The Kit 0.1.1 desktop migration has Windows native popup and synthetic interaction evidence,
+  including 120 production popup cycles, theme/scale renders, reduced-motion confirmations,
+  and an isolated embedded-resource smoke run. The Windows/macOS Cargo CI matrix also passes
+  at the S6 boundary. These checks do not establish macOS native permission/focus recovery,
+  real IME/clipboard editing, screen-reader modal behavior, or mixed-display DPI acceptance.
+- A Windows release workload (200 synthetic records, page/scroll activity, 120 generated-window
+  cycles, ten seconds idle; three runs per revision) showed no clear regression outside its
+  observed baseline envelope. It is a short diagnostic, not a long-duration memory test or an
+  approved release performance budget. Actual service/tray workflows remain separate checks.
 - Kit 0.1.1 InfoBar does not size its internal border correctly around wrapped messages.
   LVOS uses a short Kit summary plus scrollable full business detail, dismissed together.
 - Public distribution of the migrated desktop is pending the PolyForm/GPL license decision

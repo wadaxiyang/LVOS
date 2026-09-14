@@ -259,20 +259,38 @@ mod native {
                         "rapid replacement retains one active dismissal path",
                         ui.popup().window().is_visible() && outside_click(&ui),
                     ),
-                    _ => (
+                    16 => (
                         "repeated outside close",
                         !ui.popup().window().is_visible()
                             && favorite.get() == 1
                             && refresh.get() == 1,
                     ),
+                    17..=256 => {
+                        if index.get() % 2 == 1 {
+                            let hidden = !ui.popup().window().is_visible();
+                            ("cycle show", hidden && ui.show_lookup_card(&ready).is_ok())
+                        } else {
+                            let visible = ui.popup().window().is_visible() && foreground_is_main();
+                            (
+                                "cycle no-activate/hide",
+                                visible && ui.hide_lookup_card().is_ok(),
+                            )
+                        }
+                    }
+                    _ => (
+                        "120 production popup cycles complete",
+                        !ui.popup().window().is_visible(),
+                    ),
                 };
-                println!(
-                    "{} {}: {name}",
-                    if ok { "PASS" } else { "FAIL" },
-                    index.get()
-                );
+                if index.get() <= 16 || index.get() == 257 || !ok {
+                    println!(
+                        "{} {}: {name}",
+                        if ok { "PASS" } else { "FAIL" },
+                        index.get()
+                    );
+                }
                 failure.set(failure.get() || !ok);
-                if index.get() == 16 {
+                if index.get() == 257 {
                     let _ = slint::quit_event_loop();
                 }
                 index.set(index.get() + 1);

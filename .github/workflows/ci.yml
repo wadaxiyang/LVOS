@@ -31,6 +31,9 @@ jobs:
       - name: Check isolated server-only graph
         shell: bash
         run: python3 scripts/check_server_only.py
+      - name: Verify native engineering package without publishing
+        shell: bash
+        run: python3 scripts/check_native_package.py
       - name: Verify repository policy
         shell: bash
         run: |

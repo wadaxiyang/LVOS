@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 
-SOURCE_SUFFIXES = {".slint", ".rs", ".toml", ".yml", ".yaml", ".sh", ".py"}
+SOURCE_SUFFIXES = {".ps1", ".slint", ".rs", ".toml", ".yml", ".yaml", ".sh", ".py"}
 FORBIDDEN_CARGO_TERMS = ("electron", "tauri", "webview")
 SECRET_PATTERNS = (
     re.compile(rb"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY"),

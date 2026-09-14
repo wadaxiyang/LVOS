@@ -164,6 +164,49 @@ async fn portable_preview_and_apply_stay_behind_the_database_worker_boundary() {
         .switch_profile(metadata())
         .await
         .unwrap_or_else(|error| unreachable!("target profile: {error}"));
+    let before = service
+        .export_portable_json()
+        .await
+        .unwrap_or_else(|error| unreachable!("before preview: {error}"));
+    let cancelled = service
+        .preview_portable_import(bytes.clone())
+        .await
+        .unwrap_or_else(|error| unreachable!("cancelled preview: {error}"));
+    drop(cancelled);
+    assert_eq!(
+        service
+            .export_portable_json()
+            .await
+            .unwrap_or_else(|error| unreachable!("after cancellation: {error}")),
+        before
+    );
+
+    let stale = service
+        .preview_portable_import(bytes.clone())
+        .await
+        .unwrap_or_else(|error| unreachable!("stale preview: {error}"));
+    worker
+        .switch_profile(metadata())
+        .await
+        .unwrap_or_else(|error| unreachable!("replacement profile: {error}"));
+    let replacement = service
+        .export_portable_json()
+        .await
+        .unwrap_or_else(|error| unreachable!("replacement export: {error}"));
+    assert!(
+        service
+            .apply_portable_import(stale, UnixTimestamp::from_seconds(1_780_000_003))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        service
+            .export_portable_json()
+            .await
+            .unwrap_or_else(|error| unreachable!("after stale plan: {error}")),
+        replacement
+    );
+
     let plan = service
         .preview_portable_import(bytes)
         .await

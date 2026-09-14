@@ -11,6 +11,14 @@ export component QuickLookupPopup inherits Window {
     no-frame: true;
     // Globals belong to this Window instance. Keep the existing light policy.
     default-font-family: Theme.ui_font_family;
+    // Host diagnostics can exercise each independent global context.
+    in-out property <bool> dark-theme: false;
+    in-out property <bool> reduce-motion: false;
+    changed dark-theme => {
+        Theme.mode = root.dark-theme ? ThemeMode.dark : ThemeMode.light;
+        Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed reduce-motion => { Motion.reduced_motion = root.reduce-motion; }
     init => {
         Theme.mode = ThemeMode.light;
         Theme.system_dark = false;
@@ -61,7 +69,7 @@ export component QuickLookupPopup inherits Window {
             }
             if root.loading: HorizontalLayout {
                 spacing: UiConstants.space_12;
-                FluentProgressRing { width: 24px; height: 24px; }
+                FluentProgressRing { width: 24px; height: 24px; indeterminate: !root.reduce-motion; progress: 0.75; running: !root.reduce-motion; }
                 Text { text: "Translating…"; color: Theme.text_secondary; font-size: Typography.body; vertical-alignment: center; }
             }
             if !root.loading: FluentScrollView {

@@ -38,6 +38,10 @@ use lvos_platform::{
 use lvos_platform::{NotificationService, SelectionCapture};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Exercise the packaged UI without opening profiles, credentials or services.
+    if std::env::args().any(|arg| arg == "--ui-smoke") {
+        return ui_smoke();
+    }
     #[cfg(target_os = "macos")]
     wait_for_restart_predecessor();
     #[cfg(target_os = "windows")]
@@ -79,6 +83,47 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(native);
     runtime.shutdown();
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn ui_smoke() -> Result<(), Box<dyn Error>> {
+    let ui = UiController::new()?;
+    let frames = std::rc::Rc::new(std::cell::Cell::new(0_u8));
+    for (index, window) in [
+        ui.main_window().window(),
+        ui.popup().window(),
+        ui.permission_window().window(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let frames = std::rc::Rc::clone(&frames);
+        window.set_rendering_notifier(move |state, _| {
+            if matches!(state, slint::RenderingState::AfterRendering) {
+                frames.set(frames.get() | (1 << index));
+            }
+        })?;
+    }
+    ui.main_window().set_active_page(2);
+    ui.show_main_window()?;
+    ui.show_lookup_card(&lvos::LookupCardState::Loading {
+        generation: 1,
+        source: "Synthetic package verification".into(),
+    })?;
+    ui.permission_window().show()?;
+    slint::Timer::single_shot(std::time::Duration::from_secs(3), || {
+        let _ = slint::quit_event_loop();
+    });
+    slint::run_event_loop_until_quit()?;
+    if frames.get() != 0b111 {
+        return Err("packaged UI smoke: not all three windows rendered".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn ui_smoke() -> Result<(), Box<dyn Error>> {
+    Err("packaged UI smoke requires a supported desktop host".into())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

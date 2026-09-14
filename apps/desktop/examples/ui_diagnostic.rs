@@ -3,6 +3,7 @@ use std::{error::Error, str::FromStr};
 use lvos::{DeviceRecord, LookupCardState, UiController, ui_record};
 use lvos_core::ContentKey;
 use lvos_translation::LookupCardErrorKind;
+use slint::ComponentHandle;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let ui = UiController::new()?;
@@ -79,6 +80,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     ui.show_main_window()?;
     ui.show_lookup_card(&card)?;
+    if std::env::args().any(|arg| arg == "--smoke") {
+        let popup = ui.popup().as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+            assert!(
+                popup
+                    .upgrade()
+                    .is_some_and(|window| window.window().is_visible()),
+                "diagnostic popup failed to show"
+            );
+            let _ = slint::quit_event_loop();
+        });
+    }
     slint::run_event_loop_until_quit()?;
     Ok(())
 }

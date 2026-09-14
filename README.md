@@ -75,3 +75,19 @@ sequentially: parallel windows can steal focus. They use synthetic data, and com
 does not count as executing their native interactions. `ui_render_check <scene> <output.ppm>`
 renders synthetic pages and popup states. Server-only builds use `Cargo.server.toml` and
 `Cargo.server.lock` as in the Dockerfile; they do not consume Kit or Slint.
+
+For package resource verification, `LVOS.exe --ui-smoke` (or the macOS executable with the same
+flag) creates synthetic windows and exits after rendering all three. It bypasses profile,
+credential, update, hotkey, and service initialization. This checks packaged UI resources; it
+does not validate the live tray, capture permissions, external services, or accessibility.
+`python scripts/check_native_package.py` builds and verifies a native engineering ZIP without
+publishing it. Release acceptance still requires the limitations and license gates above.
+
+The render diagnostic accepts `dark`, `reduced`, `narrow`, and `collapsed` options after its
+output path; `SLINT_SCALE_FACTOR` can exercise synthetic scale changes. These are separate
+from actual mixed-monitor testing. `ui_performance_check` provides an identical synthetic
+workload for pre-Kit and migrated builds. On Windows, `scripts/measure-ui-performance.ps1`
+collects three baseline runs before three candidate runs, including CPU, memory and 120
+show/hide cycles. Use matching release configuration and run without competing builds/UI
+fixtures. Its observed baseline envelope is exploratory and does not constitute an approved
+performance budget.
