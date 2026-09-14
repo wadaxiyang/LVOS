@@ -11,6 +11,14 @@ import zipfile
 
 
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
+ROOT = Path(__file__).resolve().parent.parent
+NOTICE_FILES = {
+    "NOTICES/LVOS-LICENSE.txt": "LICENSE",
+    "NOTICES/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+    "NOTICES/Quadrant-Kit-GPL-3.0.txt": "licenses/Quadrant-Kit-GPL-3.0.txt",
+    "NOTICES/Quadrant-Kit-NOTICES.md": "licenses/Quadrant-Kit-NOTICES.md",
+    "NOTICES/Fluent-System-Icons-MIT.txt": "licenses/Fluent-System-Icons-MIT.txt",
+}
 
 
 def _entry(archive_name: str, mode: int, *, directory: bool = False) -> zipfile.ZipInfo:
@@ -32,6 +40,11 @@ def create_release_zip(source: Path, output: Path, archive_name: str) -> None:
         temporary.unlink()
     try:
         with zipfile.ZipFile(temporary, "w", strict_timestamps=True) as archive:
+            for name, relative in sorted(NOTICE_FILES.items()):
+                content = (ROOT / relative).read_bytes()
+                if not content:
+                    raise ValueError(f"empty distribution notice: {relative}")
+                archive.writestr(_entry(name, 0o644), content)
             if source.is_file():
                 mode = 0o755 if source.stat().st_mode & stat.S_IXUSR else 0o644
                 archive.writestr(_entry(archive_name, mode), source.read_bytes())

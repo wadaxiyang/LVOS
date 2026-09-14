@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,14 +23,20 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Test
-        run: cargo test --workspace --all-targets --all-features
+        run: cargo test --workspace --all-targets --all-features --locked
+      - name: Build desktop
+        run: cargo build --locked -p lvos
+      - name: Check isolated server-only graph
+        shell: bash
+        run: python3 scripts/check_server_only.py
       - name: Verify repository policy
         shell: bash
         run: |
-          python3 -B -m unittest scripts/test_ci_checks.py
+          python3 -B -m unittest discover -s scripts -p "test_*.py"
           python3 scripts/check_repository_policy.py
           python3 scripts/check_workspace.py
+          python3 scripts/check_kit_adoption.py
           python3 scripts/check_stage14_security.py
           python3 scripts/check_stage15_scope.py

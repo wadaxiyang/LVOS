@@ -284,6 +284,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
 
 [[package]]
+name = "futures-sink"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
+
+[[package]]
 name = "futures-task"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -492,14 +498,14 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "lvos-auth"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lvos-core",
 ]
 
 [[package]]
 name = "lvos-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "sha2",
  "unicode-casefold",
@@ -509,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "argon2",
  "axum",
@@ -524,6 +530,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
@@ -533,9 +540,10 @@ dependencies = [
 
 [[package]]
 name = "lvos-storage"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lvos-core",
+ "lvos-sync",
  "rusqlite",
  "serde",
  "serde_json",
@@ -545,9 +553,10 @@ dependencies = [
 
 [[package]]
 name = "lvos-sync"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lvos-core",
+ "serde",
 ]
 
 [[package]]
@@ -969,6 +978,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

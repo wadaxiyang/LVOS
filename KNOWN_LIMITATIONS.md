@@ -1,5 +1,16 @@
 # LVOS V1 known limitations
 
+- The Kit 0.1.1 desktop migration has Windows synthetic interaction evidence. macOS native
+  permission/focus recovery, real IME and clipboard editing, screen-reader modal behavior,
+  mixed-display DPI, and release performance acceptance are still pending. Compilation and
+  screenshots do not establish those results.
+- Kit 0.1.1 InfoBar does not size its internal border correctly around wrapped messages.
+  LVOS uses a short Kit summary plus scrollable full business detail, dismissed together.
+- Public distribution of the migrated desktop is pending the PolyForm/GPL license decision
+  and the remaining dependency notice audit. Local engineering ZIPs include the minimum Kit
+  notice inventory; their existence does not make a release ready. See
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 - Desktop release targets are limited to Windows 11 x86_64 and macOS 15 arm64. Linux, Intel macOS,
   older Windows/macOS versions, mobile clients, and Web/PWA clients are not supported in V1.
 - Desktop artifacts are unsigned. macOS is ad-hoc signed only to stabilize local bundle identity;

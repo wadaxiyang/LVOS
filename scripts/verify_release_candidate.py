@@ -13,6 +13,11 @@ import struct
 import sys
 import zipfile
 
+if __package__:
+    from .create_release_zip import NOTICE_FILES, ROOT
+else:
+    from create_release_zip import NOTICE_FILES, ROOT
+
 
 RELEASE_ROOT = "https://github.com/wadaxiyang/LVOS/releases"
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -20,6 +25,12 @@ FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 MAX_ARTIFACT_BYTES = 536_870_912
 MAX_ARCHIVE_CONTENT_BYTES = 536_870_912
 VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+
+
+def verify_notices(archive: zipfile.ZipFile) -> None:
+    for name, relative in NOTICE_FILES.items():
+        if name not in archive.namelist() or archive.read(name) != (ROOT / relative).read_bytes():
+            raise ValueError(f"missing or modified distribution notice: {name}")
 
 
 def digest(path: Path) -> str:
@@ -54,6 +65,7 @@ def safe_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
 
 def verify_macos(path: Path, version: str) -> None:
     with zipfile.ZipFile(path) as archive:
+        verify_notices(archive)
         entries = safe_entries(archive)
         names = {entry.filename for entry in entries}
         plist_name = "LVOS.app/Contents/Info.plist"
@@ -79,10 +91,11 @@ def verify_macos(path: Path, version: str) -> None:
 
 def verify_windows(path: Path) -> None:
     with zipfile.ZipFile(path) as archive:
+        verify_notices(archive)
         entries = safe_entries(archive)
         files = [entry for entry in entries if not entry.is_dir()]
-        if [entry.filename for entry in files] != ["LVOS.exe"]:
-            raise ValueError("Windows archive must contain exactly LVOS.exe")
+        if {entry.filename for entry in files} != {"LVOS.exe", *NOTICE_FILES}:
+            raise ValueError("Windows archive must contain LVOS.exe and the exact notice inventory")
         binary = archive.read("LVOS.exe")
     if len(binary) < 0x100 or binary[:2] != b"MZ":
         raise ValueError("Windows executable lacks an MZ header")

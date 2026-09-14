@@ -7,6 +7,7 @@ import json
 from pathlib import Path, PurePath
 import subprocess
 import sys
+import tomllib
 
 
 EXPECTED_PACKAGES = [
@@ -44,7 +45,7 @@ def parse_metadata(raw_metadata: str) -> dict[str, object]:
 
 def cargo_metadata() -> dict[str, object]:
     completed = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        ["cargo", "metadata", "--format-version", "1", "--no-deps", "--locked"],
         check=True,
         stdout=subprocess.PIPE,
         text=True,
@@ -53,7 +54,24 @@ def cargo_metadata() -> dict[str, object]:
     return parse_metadata(completed.stdout)
 
 
-def check_packages(metadata: dict[str, object]) -> None:
+def check_packages(metadata: dict[str, object], expected_version: str | None = None) -> None:
+    if expected_version is None:
+        root = Path(__file__).resolve().parent.parent
+        expected_version = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+        server_version = tomllib.loads((root / "Cargo.server.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+        if server_version != expected_version:
+            raise SystemExit("server-only workspace version differs from product version")
+        desktop = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]
+        server = tomllib.loads((root / "Cargo.server.toml").read_text(encoding="utf-8"))["workspace"]
+        for name, dependency in server["dependencies"].items():
+            if dependency != desktop["dependencies"].get(name):
+                raise SystemExit(f"server-only dependency definition drifted: {name}")
+        for member in server["members"]:
+            manifest = tomllib.loads((root / member / "Cargo.toml").read_text(encoding="utf-8"))
+            for section in ("dependencies", "build-dependencies", "dev-dependencies"):
+                for name, dependency in manifest.get(section, {}).items():
+                    if isinstance(dependency, dict) and dependency.get("workspace") and name not in server["dependencies"]:
+                        raise SystemExit(f"server-only workspace dependency missing: {name}")
     packages = metadata.get("packages")
     if not isinstance(packages, list):
         raise SystemExit("cargo metadata did not contain a package list")
@@ -68,7 +86,7 @@ def check_packages(metadata: dict[str, object]) -> None:
         )
 
     for package in packages:
-        if package.get("version") != "0.1.4":
+        if package.get("version") != expected_version:
             raise SystemExit(f"workspace package has incorrect version: {package!r}")
         if package.get("license") is not None:
             raise SystemExit(f"workspace package must use license-file: {package!r}")

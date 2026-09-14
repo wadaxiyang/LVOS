@@ -1,6 +1,14 @@
 # LVOS unsigned release notes
 
-This is a stable LVOS V1 release for Windows 11 x86_64 and macOS 15 arm64.
+The Kit 0.1.1 desktop migration is an engineering preview pending native acceptance and the
+distribution decision recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Do not publish
+its desktop artifacts as a stable release before those gates are resolved. The instructions
+below describe the existing unsigned artifact format and verification process.
+
+Both platform ZIPs include a top-level `NOTICES/` directory with the LVOS license, the desktop
+dependency notice, the Kit GPL license and derivation notice, and the Fluent System Icons MIT
+license. Windows retains `LVOS.exe`; macOS retains the ad-hoc signed `LVOS.app`. The ZIP creator
+and candidate verifier require these notice files; do not strip them when redistributing.
 
 ## Highlights
 

@@ -45,5 +45,33 @@ V1 limitations and excluded features: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.m
 
 ## License
 
+The current desktop source uses Quadrant-Kit 0.1.1 and is pending full native acceptance and a
+distribution license decision. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) before packaging this migration.
+
 LVOS is source-available under the unmodified
 [PolyForm Noncommercial License 1.0.0](LICENSE). It is not OSI open source.
+
+## Build the Kit desktop
+
+Use the checked-in Rust toolchain and `cargo build --locked -p lvos` on a supported host.
+`apps/desktop/Cargo.toml` consumes the official Quadrant-Kit Git repository as a build dependency,
+with exact version `=0.1.1` and full revision `20cc9d77b737d1326d4320a42f7d26f9a799298f`.
+No adjacent Kit checkout is needed. Cargo's Git cache is allowed; sibling paths, patches,
+replacement sources, and copied UI implementations are rejected by `scripts/check_kit_adoption.py`.
+
+The official build helper exposes `@quadrant-kit`; Slint 1.17.1 compiles Fluent UI and embeds
+its assets into the binary. Production uses winit/femtovg and the platform default font. The
+pinned winit 0.30 accessor is enabled to create popup windows without activation. Generic
+controls, settings rows, navigation, feedback and confirmations come from Kit. The remaining
+local compositions bind LVOS records/settings, and seven product SVGs cover brand or semantic
+icons unavailable in Kit's public 0.1.1 set.
+
+Run `scripts/check-before-commit.sh` with its documented cross-build prerequisites, or run its
+native Cargo/Python checks individually. CI runs locked checks on Windows and macOS. In an
+interactive desktop session run `ui_navigation_check`, `ui_modal_check`, and (Windows)
+`ui_window_check` with `cargo run --locked -p lvos --example <name>`. Run these diagnostics
+sequentially: parallel windows can steal focus. They use synthetic data, and compiling them
+does not count as executing their native interactions. `ui_render_check <scene> <output.ppm>`
+renders synthetic pages and popup states. Server-only builds use `Cargo.server.toml` and
+`Cargo.server.lock` as in the Dockerfile; they do not consume Kit or Slint.

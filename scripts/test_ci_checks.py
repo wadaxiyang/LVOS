@@ -11,11 +11,11 @@ import tempfile
 import unittest
 import zipfile
 
-from scripts.create_release_zip import create_release_zip
+from scripts.create_release_zip import NOTICE_FILES, create_release_zip
 from scripts.check_release_tag import check_release_tag
 from scripts.generate_update_manifest import MAX_ARTIFACT_BYTES, build_manifest
 from scripts.generate_release_checksums import write_checksums
-from scripts.verify_release_candidate import verify_candidate
+from scripts.verify_release_candidate import verify_candidate, verify_notices
 from scripts.check_stage14_security import REQUIRED_CALLBACKS, ui_contract_failures
 
 from scripts.check_workspace import (
@@ -57,7 +57,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.4",
+                    "version": "0.1.5",
                     "license": None,
                     "license_file": license_path,
                 }
@@ -93,7 +93,7 @@ class WorkspaceCheckTests(unittest.TestCase):
         self.assertNotIn("--draft", release)
         self.assertIn("--latest", release)
         self.assertIn("  pull_request:\n", continuous)
-        self.assertNotIn("  push:\n", continuous)
+        self.assertIn("  push:\n", continuous)
         self.assertNotIn("actions/checkout@v4", release + continuous)
         self.assertIn("actions/checkout@v7", release + continuous)
         self.assertIn("actions/upload-artifact@v7", release)
@@ -142,7 +142,8 @@ class WorkspaceCheckTests(unittest.TestCase):
             self.assertEqual(first, mac_archive.read_bytes())
             create_release_zip(windows_source, windows_archive, "LVOS.exe")
             with zipfile.ZipFile(windows_archive) as archive:
-                self.assertEqual(archive.namelist(), ["LVOS.exe"])
+                self.assertEqual(archive.namelist(), [*sorted(NOTICE_FILES), "LVOS.exe"])
+                verify_notices(archive)
             manifest = build_manifest(
                 "0.1.0", "stable", mac_archive, windows_archive
             )
@@ -153,6 +154,33 @@ class WorkspaceCheckTests(unittest.TestCase):
                 oversized.truncate(MAX_ARTIFACT_BYTES + 1)
             with self.assertRaises(ValueError):
                 build_manifest("0.1.0", "stable", mac_archive, windows_archive)
+
+    def test_notice_inventory_rejects_missing_and_modified_text(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            source = directory / "LVOS.exe"
+            source.write_bytes(b"synthetic")
+            archive_path = directory / "preview.zip"
+            create_release_zip(source, archive_path, "LVOS.exe")
+            with zipfile.ZipFile(archive_path) as archive:
+                contents = {name: archive.read(name) for name in archive.namelist()}
+            for missing in (True, False):
+                changed = dict(contents)
+                notice = next(iter(NOTICE_FILES))
+                if missing:
+                    del changed[notice]
+                else:
+                    changed[notice] = b"modified"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name, data in changed.items():
+                        archive.writestr(name, data)
+                with zipfile.ZipFile(archive_path) as archive:
+                    with self.assertRaisesRegex(ValueError, "distribution notice"):
+                        verify_notices(archive)
+
+    def test_workspace_version_mismatch_is_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            check_packages(self.metadata(license_path="LICENSE"), "9.9.9")
 
     def test_release_candidate_verifier_checks_both_native_identities(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:
