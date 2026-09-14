@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, str::FromStr};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    path::PathBuf,
+    rc::Rc,
+    str::FromStr,
+};
 
 use lvos::{
     ConfirmationBroker, ConfirmationRequest, DeviceRecord, FeedbackKind, LookupCardState,
@@ -31,22 +37,44 @@ struct DisplaySession {
     query_id: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PendingRequest {
+    operation: UiOperationName,
+    blocks_ui: bool,
+}
+
+#[derive(Default)]
+struct ExitState {
+    armed: bool,
+    request_id: Option<Uuid>,
+}
+
 pub(crate) struct UiSession {
     ui: UiProcessCoordinator,
     requests: UiRequestSender,
+    generation: u64,
     cache: Rc<RefCell<UiCache>>,
     display: Rc<RefCell<Option<DisplaySession>>>,
-    pending: Rc<RefCell<HashMap<Uuid, UiOperationName>>>,
+    pending: Rc<RefCell<HashMap<Uuid, PendingRequest>>>,
+    local_operations: Rc<Cell<u32>>,
+    exit: Rc<RefCell<ExitState>>,
 }
 
 impl UiSession {
-    pub(crate) fn install(ui: UiProcessCoordinator, requests: UiRequestSender) -> Rc<Self> {
+    pub(crate) fn install(
+        ui: UiProcessCoordinator,
+        requests: UiRequestSender,
+        generation: u64,
+    ) -> Rc<Self> {
         let session = Rc::new(Self {
             ui,
             requests,
+            generation,
             cache: Rc::new(RefCell::new(UiCache::default())),
             display: Rc::new(RefCell::new(None)),
             pending: Rc::new(RefCell::new(HashMap::new())),
+            local_operations: Rc::new(Cell::new(0)),
+            exit: Rc::new(RefCell::new(ExitState::default())),
         });
         session.install_host_hooks();
         session
@@ -61,28 +89,29 @@ impl UiSession {
 
         let session = Rc::clone(self);
         self.ui.on_popup_created(move |popup| {
-            let requests = session.requests.clone();
+            let handles = session.clone_handles();
             let popup_weak = popup.as_weak();
             popup.on_favorite_toggled(move || {
                 let Some(popup) = popup_weak.upgrade() else {
                     return;
                 };
-                let _ = requests.request(UiOperation::PopupFavoriteToggle {
+                handles.submit_background(UiOperation::PopupFavoriteToggle {
                     active: !popup.get_favorite(),
                 });
             });
 
-            let requests = session.requests.clone();
+            let handles = session.clone_handles();
             let display = Rc::clone(&session.display);
             popup.on_refresh_requested(move || {
                 if let Some(display) = *display.borrow() {
-                    let _ = requests.request(UiOperation::PopupRefresh {
+                    handles.submit_background(UiOperation::PopupRefresh {
                         display_session_id: display.id,
                     });
                 }
             });
         });
 
+        let session = Rc::clone(self);
         let requests = self.requests.clone();
         let display = Rc::clone(&self.display);
         self.ui.on_popup_dismissed(move || {
@@ -91,23 +120,32 @@ impl UiSession {
                     display_session_id: display.id,
                 });
             }
+            session.clone_handles().evaluate_exit();
         });
 
-        let requests = self.requests.clone();
+        let handles = self.clone_handles();
         self.ui.on_permission_created(move |permission| {
-            let sender = requests.clone();
+            let sender = handles.clone();
             permission.on_open_settings(move || {
-                let _ = sender.request(UiOperation::OpenAccessibilitySettings);
+                sender.submit_background(UiOperation::OpenAccessibilitySettings);
             });
-            let sender = requests.clone();
+            let sender = handles.clone();
             permission.on_check_again(move || {
-                let _ = sender.request(UiOperation::RequestAccessibilityPermission);
+                sender.submit_background(UiOperation::RequestAccessibilityPermission);
             });
-            let sender = requests.clone();
+            let sender = handles.clone();
             permission.on_restart_requested(move || {
-                let _ = sender.request(UiOperation::RestartAgent);
+                sender.submit_background(UiOperation::RestartAgent);
             });
         });
+
+        let handles = self.clone_handles();
+        self.ui.on_main_destroyed(move || handles.evaluate_exit());
+        let handles = self.clone_handles();
+        self.ui.on_popup_destroyed(move || handles.evaluate_exit());
+        let handles = self.clone_handles();
+        self.ui
+            .on_permission_destroyed(move || handles.evaluate_exit());
     }
 
     pub(crate) fn apply(&self, sequence: u64, message: AgentToUi) {
@@ -129,7 +167,10 @@ impl UiSession {
             AgentToUi::BeginLookup {
                 display_session_id,
                 state,
-            } => self.begin_lookup(display_session_id, state),
+            } => {
+                self.exit.borrow_mut().armed = true;
+                self.begin_lookup(display_session_id, state);
+            }
             AgentToUi::UpdateLookup {
                 display_session_id,
                 state,
@@ -144,11 +185,18 @@ impl UiSession {
                 }
             }
             AgentToUi::OpenMainWindow => {
+                self.exit.borrow_mut().armed = true;
                 if let Err(error) = self.ui.show_main_window() {
                     tracing::error!(%error, "failed to show management UI");
                 }
             }
+            AgentToUi::HideMainWindow => {
+                if let Err(error) = self.ui.hide_main_window() {
+                    tracing::error!(%error, "failed to destroy management UI");
+                }
+            }
             AgentToUi::ShowPermission { status } => {
+                self.exit.borrow_mut().armed = true;
                 let permission = self.ui.permission_window();
                 permission.set_status_text(status.into());
                 if let Err(error) = self.ui.show_permission_window() {
@@ -156,6 +204,10 @@ impl UiSession {
                 }
             }
             AgentToUi::OperationResult(result) => self.apply_operation_result(&result),
+            AgentToUi::IdleExitApproved {
+                request_id,
+                process_generation,
+            } => self.apply_exit_approval(request_id, process_generation),
             AgentToUi::Shutdown => {
                 let _ = slint::quit_event_loop();
             }
@@ -163,6 +215,7 @@ impl UiSession {
                 tracing::warn!("ignored handshake message after GUI readiness");
             }
         }
+        self.clone_handles().evaluate_exit();
     }
 
     fn apply_snapshot(&self, snapshot: UiSnapshot) {
@@ -237,7 +290,8 @@ impl UiSession {
             }
         };
         if should_request {
-            let _ = self.requests.request(UiOperation::RequestSnapshot);
+            self.clone_handles()
+                .submit_background(UiOperation::RequestSnapshot);
         }
     }
 
@@ -278,9 +332,9 @@ impl UiSession {
     }
 
     fn apply_operation_result(&self, result: &OperationResult) {
-        let pending_operation = self.pending.borrow_mut().remove(&result.response_to);
-        if let Some(expected) = pending_operation
-            && expected != result.operation
+        let pending_request = self.pending.borrow_mut().remove(&result.response_to);
+        if let Some(expected) = pending_request
+            && expected.operation != result.operation
         {
             self.show_feedback(UiFeedback {
                 message: "The Agent returned a mismatched operation response.".to_owned(),
@@ -290,6 +344,9 @@ impl UiSession {
         self.update_pending_indicator();
         if !result.feedback.message.is_empty() {
             self.show_feedback(result.feedback.clone());
+        }
+        if !result.success && self.ui.has_main_host() {
+            self.apply_cached_main(&self.ui.main_window());
         }
         if result.success
             && let OperationOutput::ImportPreview {
@@ -330,16 +387,37 @@ impl UiSession {
         }
     }
 
+    fn apply_exit_approval(&self, request_id: Uuid, process_generation: u64) {
+        if process_generation != self.generation
+            || self.exit.borrow().request_id != Some(request_id)
+        {
+            return;
+        }
+        if self.clone_handles().is_idle() {
+            tracing::info!(event = "ui_process_idle_exit", generation = self.generation);
+            let _ = self.requests.event(UiToAgent::Exiting {
+                process_generation: self.generation,
+            });
+            let _ = slint::quit_event_loop();
+        } else {
+            self.exit.borrow_mut().request_id = None;
+            let _ = self.requests.event(UiToAgent::CancelIdleExit {
+                request_id,
+                process_generation: self.generation,
+            });
+        }
+    }
+
     fn install_main_callbacks(&self, main: &Rc<MainWindow>, confirmations: &ConfirmationBroker) {
-        let sender = self.requests.clone();
+        let handles = self.clone_handles();
         main.on_history_search(move |term| {
-            let _ = sender.request(UiOperation::HistorySearch {
+            handles.submit_background(UiOperation::HistorySearch {
                 term: term.to_string(),
             });
         });
-        let sender = self.requests.clone();
+        let handles = self.clone_handles();
         main.on_favorites_search(move |term| {
-            let _ = sender.request(UiOperation::FavoritesSearch {
+            handles.submit_background(UiOperation::FavoritesSearch {
                 term: term.to_string(),
             });
         });
@@ -497,36 +575,48 @@ impl UiSession {
         let session = self.clone_handles();
         main.on_export_data_requested(move || {
             let session = session.clone();
-            let _ = slint::spawn_local(async move {
-                let Some(file) = rfd::AsyncFileDialog::new()
+            session.begin_local_operation();
+            let operation = session.clone();
+            if slint::spawn_local(async move {
+                let file = rfd::AsyncFileDialog::new()
                     .add_filter("LVOS Portable JSON", &["json"])
                     .set_file_name("lvos-export.json")
                     .save_file()
-                    .await
-                else {
-                    return;
-                };
-                session.submit(UiOperation::ExportData {
-                    path: PathBuf::from(file.path()),
-                });
-            });
+                    .await;
+                if let Some(file) = file {
+                    operation.submit(UiOperation::ExportData {
+                        path: PathBuf::from(file.path()),
+                    });
+                }
+                operation.end_local_operation();
+            })
+            .is_err()
+            {
+                session.end_local_operation();
+            }
         });
 
         let session = self.clone_handles();
         main.on_import_data_requested(move || {
             let session = session.clone();
-            let _ = slint::spawn_local(async move {
-                let Some(file) = rfd::AsyncFileDialog::new()
+            session.begin_local_operation();
+            let operation = session.clone();
+            if slint::spawn_local(async move {
+                let file = rfd::AsyncFileDialog::new()
                     .add_filter("LVOS Portable JSON", &["json"])
                     .pick_file()
-                    .await
-                else {
-                    return;
-                };
-                session.submit(UiOperation::PreviewImport {
-                    path: PathBuf::from(file.path()),
-                });
-            });
+                    .await;
+                if let Some(file) = file {
+                    operation.submit(UiOperation::PreviewImport {
+                        path: PathBuf::from(file.path()),
+                    });
+                }
+                operation.end_local_operation();
+            })
+            .is_err()
+            {
+                session.end_local_operation();
+            }
         });
     }
 
@@ -534,7 +624,10 @@ impl UiSession {
         UiSessionHandles {
             ui: self.ui.clone(),
             requests: self.requests.clone(),
+            generation: self.generation,
             pending: Rc::clone(&self.pending),
+            local_operations: Rc::clone(&self.local_operations),
+            exit: Rc::clone(&self.exit),
         }
     }
 
@@ -542,7 +635,7 @@ impl UiSession {
         if self.ui.has_main_host() {
             self.ui
                 .main_window()
-                .set_operation_pending(!self.pending.borrow().is_empty());
+                .set_operation_pending(has_blocking_request(&self.pending.borrow()));
         }
     }
 
@@ -556,7 +649,7 @@ impl UiSession {
         if let Some(snapshot) = self.cache.borrow().main.as_ref() {
             apply_main_snapshot(main, snapshot);
         }
-        main.set_operation_pending(!self.pending.borrow().is_empty());
+        main.set_operation_pending(has_blocking_request(&self.pending.borrow()));
     }
 }
 
@@ -564,16 +657,33 @@ impl UiSession {
 struct UiSessionHandles {
     ui: UiProcessCoordinator,
     requests: UiRequestSender,
-    pending: Rc<RefCell<HashMap<Uuid, UiOperationName>>>,
+    generation: u64,
+    pending: Rc<RefCell<HashMap<Uuid, PendingRequest>>>,
+    local_operations: Rc<Cell<u32>>,
+    exit: Rc<RefCell<ExitState>>,
 }
 
 impl UiSessionHandles {
     fn submit(&self, operation: UiOperation) {
+        self.submit_request(operation, true);
+    }
+
+    fn submit_background(&self, operation: UiOperation) {
+        self.submit_request(operation, false);
+    }
+
+    fn submit_request(&self, operation: UiOperation, blocks_ui: bool) {
         let name = operation.name();
         match self.requests.request(operation) {
             Ok(request_id) => {
-                self.pending.borrow_mut().insert(request_id, name);
-                if self.ui.has_main_host() {
+                self.pending.borrow_mut().insert(
+                    request_id,
+                    PendingRequest {
+                        operation: name,
+                        blocks_ui,
+                    },
+                );
+                if blocks_ui && self.ui.has_main_host() {
                     self.ui.main_window().set_operation_pending(true);
                 }
             }
@@ -582,6 +692,7 @@ impl UiSessionHandles {
                 level: FeedbackLevel::Error,
             }),
         }
+        self.evaluate_exit();
     }
 
     fn show_feedback(&self, feedback: UiFeedback) {
@@ -589,6 +700,54 @@ impl UiSessionHandles {
             set_feedback(&self.ui.main_window(), feedback);
         }
     }
+
+    fn begin_local_operation(&self) {
+        self.local_operations
+            .set(self.local_operations.get().saturating_add(1));
+        self.evaluate_exit();
+    }
+
+    fn end_local_operation(&self) {
+        self.local_operations
+            .set(self.local_operations.get().saturating_sub(1));
+        self.evaluate_exit();
+    }
+
+    fn is_idle(&self) -> bool {
+        self.exit.borrow().armed
+            && !self.ui.has_live_ui()
+            && self.pending.borrow().is_empty()
+            && self.local_operations.get() == 0
+    }
+
+    fn evaluate_exit(&self) {
+        let idle = self.is_idle();
+        let current_request = self.exit.borrow().request_id;
+        if idle && current_request.is_none() {
+            let request_id = Uuid::new_v4();
+            self.exit.borrow_mut().request_id = Some(request_id);
+            if self
+                .requests
+                .event(UiToAgent::RequestIdleExit {
+                    request_id,
+                    process_generation: self.generation,
+                })
+                .is_err()
+            {
+                let _ = slint::quit_event_loop();
+            }
+        } else if !idle && let Some(request_id) = current_request {
+            self.exit.borrow_mut().request_id = None;
+            let _ = self.requests.event(UiToAgent::CancelIdleExit {
+                request_id,
+                process_generation: self.generation,
+            });
+        }
+    }
+}
+
+fn has_blocking_request(requests: &HashMap<Uuid, PendingRequest>) -> bool {
+    requests.values().any(|request| request.blocks_ui)
 }
 
 fn apply_main_snapshot(main: &MainWindow, snapshot: &MainUiSnapshot) {

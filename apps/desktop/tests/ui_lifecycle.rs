@@ -12,6 +12,7 @@ fn coordinator_starts_cold_and_recreates_the_management_host()
     assert!(!ui.has_main_host());
     assert!(!ui.has_popup_host());
     assert!(!ui.has_permission_host());
+    assert!(!ui.has_live_ui());
     assert_eq!(ui.popup_lifecycle_state(), PopupLifecycleState::Cold);
 
     let creations = Rc::new(Cell::new(0_u32));
@@ -21,10 +22,12 @@ fn coordinator_starts_cold_and_recreates_the_management_host()
     });
     let first = ui.main_window().as_weak();
     assert!(ui.has_main_host());
+    assert!(ui.has_live_ui());
     assert_eq!(creations.get(), 1);
 
     ui.hide_main_window()?;
     assert!(!ui.has_main_host());
+    assert!(!ui.has_live_ui());
     assert!(first.upgrade().is_none());
 
     let second = ui.main_window().as_weak();
@@ -47,5 +50,8 @@ fn coordinator_starts_cold_and_recreates_the_management_host()
     assert!(!ui.has_popup_host());
     assert_eq!(ui.popup_lifecycle_state(), PopupLifecycleState::Cold);
     assert!(popup.upgrade().is_none());
+    assert!(ui.has_live_ui());
+    ui.hide_main_window()?;
+    assert!(!ui.has_live_ui());
     Ok(())
 }

@@ -232,6 +232,19 @@ impl AgentService {
                 UiToAgent::UiBlockingChanged { blocked } => {
                     self.ui_blocked.store(blocked, Ordering::Release);
                 }
+                UiToAgent::RequestIdleExit {
+                    request_id,
+                    process_generation,
+                } => {
+                    ui.approve_idle_exit(request_id, process_generation).await;
+                }
+                UiToAgent::CancelIdleExit {
+                    request_id,
+                    process_generation,
+                    ..
+                } => {
+                    ui.cancel_idle_exit(request_id, process_generation).await;
+                }
             }
         }
     }

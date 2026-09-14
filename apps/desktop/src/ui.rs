@@ -172,6 +172,7 @@ type MainCreatedHook = Rc<dyn Fn(Rc<MainWindow>, crate::ConfirmationBroker)>;
 type PopupCreatedHook = Rc<dyn Fn(Rc<QuickLookupPopup>)>;
 type PermissionCreatedHook = Rc<dyn Fn(Rc<PermissionWindow>)>;
 type PopupDismissedHook = Rc<dyn Fn()>;
+type HostDestroyedHook = Rc<dyn Fn()>;
 
 struct UiHosts {
     popup: Option<PopupHost>,
@@ -183,6 +184,9 @@ struct UiHosts {
     popup_created_hooks: Vec<PopupCreatedHook>,
     permission_created_hooks: Vec<PermissionCreatedHook>,
     popup_dismissed_hooks: Vec<PopupDismissedHook>,
+    main_destroyed_hooks: Vec<HostDestroyedHook>,
+    popup_destroyed_hooks: Vec<HostDestroyedHook>,
+    permission_destroyed_hooks: Vec<HostDestroyedHook>,
 }
 
 impl UiHosts {
@@ -197,6 +201,9 @@ impl UiHosts {
             popup_created_hooks: Vec::new(),
             permission_created_hooks: Vec::new(),
             popup_dismissed_hooks: Vec::new(),
+            main_destroyed_hooks: Vec::new(),
+            popup_destroyed_hooks: Vec::new(),
+            permission_destroyed_hooks: Vec::new(),
         }
     }
 }
@@ -368,6 +375,27 @@ impl UiProcessCoordinator {
         self.hosts
             .borrow_mut()
             .popup_dismissed_hooks
+            .push(Rc::new(hook));
+    }
+
+    pub fn on_main_destroyed(&self, hook: impl Fn() + 'static) {
+        self.hosts
+            .borrow_mut()
+            .main_destroyed_hooks
+            .push(Rc::new(hook));
+    }
+
+    pub fn on_popup_destroyed(&self, hook: impl Fn() + 'static) {
+        self.hosts
+            .borrow_mut()
+            .popup_destroyed_hooks
+            .push(Rc::new(hook));
+    }
+
+    pub fn on_permission_destroyed(&self, hook: impl Fn() + 'static) {
+        self.hosts
+            .borrow_mut()
+            .permission_destroyed_hooks
             .push(Rc::new(hook));
     }
 
@@ -673,6 +701,7 @@ impl UiProcessCoordinator {
         use slint::winit_030::WinitWindowAccessor;
         let main_window = self.ensure_main()?;
         main_window.show().map_err(UiControllerError::Platform)?;
+        tracing::debug!(event = "main_ui_shown");
         let weak = main_window.as_weak();
         slint::spawn_local(async move {
             if let Some(main) = weak.upgrade() {
@@ -768,6 +797,12 @@ impl UiProcessCoordinator {
     #[must_use]
     pub fn has_permission_host(&self) -> bool {
         self.hosts.borrow().permission.is_some()
+    }
+
+    #[must_use]
+    pub fn has_live_ui(&self) -> bool {
+        let hosts = self.hosts.borrow();
+        hosts.main.is_some() || hosts.popup.is_some() || hosts.permission.is_some()
     }
 }
 
@@ -893,7 +928,10 @@ fn destroy_main(weak_hosts: &Weak<RefCell<UiHosts>>) {
 }
 
 fn destroy_main_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiControllerError> {
-    let host = hosts.borrow_mut().main.take();
+    let (host, hooks) = {
+        let mut hosts = hosts.borrow_mut();
+        (hosts.main.take(), hosts.main_destroyed_hooks.clone())
+    };
     let Some(host) = host else {
         return Ok(());
     };
@@ -902,11 +940,20 @@ fn destroy_main_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiControl
         .hide()
         .map_err(UiControllerError::Platform)?;
     tracing::debug!(event = "main_ui_destroyed");
+    for hook in hooks {
+        hook();
+    }
     Ok(())
 }
 
 fn destroy_permission_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiControllerError> {
-    let host = hosts.borrow_mut().permission.take();
+    let (host, hooks) = {
+        let mut hosts = hosts.borrow_mut();
+        (
+            hosts.permission.take(),
+            hosts.permission_destroyed_hooks.clone(),
+        )
+    };
     let Some(host) = host else {
         return Ok(());
     };
@@ -914,6 +961,9 @@ fn destroy_permission_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiC
         .hide()
         .map_err(UiControllerError::Platform)?;
     tracing::debug!(event = "permission_ui_destroyed");
+    for hook in hooks {
+        hook();
+    }
     Ok(())
 }
 
@@ -948,6 +998,11 @@ fn dismiss_popup_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiContro
         hook();
     }
     tracing::debug!(
+        event = "popup_hidden",
+        generation,
+        configured_timeout_secs = timeout.as_secs()
+    );
+    tracing::debug!(
         event = "popup_warm_started",
         generation,
         timeout_secs = timeout.as_secs()
@@ -958,31 +1013,55 @@ fn dismiss_popup_controller(hosts: &Rc<RefCell<UiHosts>>) -> Result<(), UiContro
 
 fn schedule_popup_release(hosts: &Rc<RefCell<UiHosts>>, generation: u64, timeout: Duration) {
     if timeout.is_zero() {
-        release_popup(hosts, generation);
+        release_popup(hosts, generation, timeout, "configured_zero");
         return;
     }
     let weak_hosts = Rc::downgrade(hosts);
     slint::Timer::single_shot(timeout, move || {
         if let Some(hosts) = weak_hosts.upgrade() {
-            release_popup(&hosts, generation);
+            release_popup(&hosts, generation, timeout, "idle_timeout");
         }
     });
 }
 
-fn release_popup(hosts: &Rc<RefCell<UiHosts>>, generation: u64) {
-    let released = {
+fn release_popup(
+    hosts: &Rc<RefCell<UiHosts>>,
+    generation: u64,
+    timeout: Duration,
+    reason: &'static str,
+) {
+    let (released, hooks) = {
         let mut hosts = hosts.borrow_mut();
         if !hosts.popup_lifecycle.release_if_current(generation) {
             return;
         }
-        hosts.popup.take().is_some()
+        (
+            hosts.popup.take().is_some(),
+            hosts.popup_destroyed_hooks.clone(),
+        )
     };
     if released {
+        if reason == "idle_timeout" {
+            tracing::debug!(
+                event = "popup_idle_timeout",
+                generation,
+                configured_timeout_secs = timeout.as_secs(),
+                reason
+            );
+        }
         #[cfg(target_os = "windows")]
         WINDOWS_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
         #[cfg(target_os = "macos")]
         CAPTURE_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
-        tracing::debug!(event = "popup_destroyed", generation);
+        tracing::debug!(
+            event = "popup_destroyed",
+            generation,
+            configured_timeout_secs = timeout.as_secs(),
+            reason
+        );
+        for hook in hooks {
+            hook();
+        }
     }
 }
 

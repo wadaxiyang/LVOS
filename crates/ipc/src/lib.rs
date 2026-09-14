@@ -182,6 +182,17 @@ pub struct UiPreferenceSnapshot {
     pub start_at_login: bool,
 }
 
+impl Default for UiPreferenceSnapshot {
+    fn default() -> Self {
+        Self {
+            popup_idle_timeout_secs: 30,
+            launch_minimized: true,
+            global_hotkey: String::new(),
+            start_at_login: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MainUiSnapshot {
@@ -201,6 +212,29 @@ pub struct MainUiSnapshot {
     pub sync_status: String,
     pub update_status: String,
     pub preferences: UiPreferenceSnapshot,
+}
+
+impl Default for MainUiSnapshot {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            history: Vec::new(),
+            favorites: Vec::new(),
+            devices: Vec::new(),
+            tokenhub_model: "hy-mt2-lite".to_owned(),
+            tokenhub_configured: false,
+            proxy_kind: 0,
+            proxy_address: String::new(),
+            provider_proxy_enabled: false,
+            update_proxy_enabled: false,
+            server_url: String::new(),
+            username: String::new(),
+            current_device: String::new(),
+            sync_status: "Login required".to_owned(),
+            update_status: "Not checked".to_owned(),
+            preferences: UiPreferenceSnapshot::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -434,10 +468,15 @@ pub enum AgentToUi {
         display_session_id: Uuid,
     },
     OpenMainWindow,
+    HideMainWindow,
     ShowPermission {
         status: String,
     },
     OperationResult(OperationResult),
+    IdleExitApproved {
+        request_id: Uuid,
+        process_generation: u64,
+    },
     Shutdown,
 }
 
@@ -455,6 +494,14 @@ pub enum UiToAgent {
     },
     UiBlockingChanged {
         blocked: bool,
+    },
+    RequestIdleExit {
+        request_id: Uuid,
+        process_generation: u64,
+    },
+    CancelIdleExit {
+        request_id: Uuid,
+        process_generation: u64,
     },
     Exiting {
         process_generation: u64,

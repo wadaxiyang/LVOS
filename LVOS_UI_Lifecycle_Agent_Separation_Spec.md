@@ -963,9 +963,19 @@ permission == None
 则：
 
 ```text
+UI → RequestIdleExit(request_id, generation)
+ ↓
+Agent atomically marks generation Stopping
+ ↓
+Agent → IdleExitApproved(request_id, generation)
+ ↓
+UI rechecks that it is still idle
+ ↓
 quit Slint event loop
 exit lvos-ui
 ```
+
+UI 不得在 handshake Snapshot 应用后、首个显示命令到达前申请退出。若 `RequestIdleExit` 与新的显示命令交错，已排队的显示命令必须先应用；UI 随后发送 `CancelIdleExit`，Agent 只有在 request ID 与 generation 同时匹配时才允许 `Stopping → Ready`。若没有新活动，Agent 保持 `Stopping`，新查询等待旧进程真正退出后再启动下一 generation。
 
 ---
 
@@ -2096,6 +2106,8 @@ quit Slint
  ↓
 exit process
 ```
+
+Native lifecycle diagnostic 必须覆盖：空闲退出、退出许可前排队的新查询取消退出、旧进程完全退出后 generation 递增重建，以及迟到结果不能重启 UI。可用 `python scripts/check_ui_process_lifecycle.py` 在目标桌面系统执行。
 
 ---
 

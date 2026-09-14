@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui = UiProcessCoordinator::new()?;
     let (incoming_tx, incoming_rx) = std_mpsc::channel::<IncomingMessage>();
     let ipc = UiIpcClient::start(incoming_tx)?;
-    let session = UiSession::install(ui, ipc.requests());
+    let session = UiSession::install(ui, ipc.requests(), ipc.generation());
     let pump = slint::Timer::default();
     pump.start(
         slint::TimerMode::Repeated,

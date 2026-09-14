@@ -41,6 +41,7 @@ struct ProcessState {
     phase: UiProcessPhase,
     sender: Option<mpsc::UnboundedSender<AgentToUi>>,
     kill_sender: Option<mpsc::Sender<()>>,
+    idle_exit_request: Option<Uuid>,
 }
 
 impl Default for ProcessState {
@@ -49,6 +50,7 @@ impl Default for ProcessState {
             phase: UiProcessPhase::Stopped,
             sender: None,
             kill_sender: None,
+            idle_exit_request: None,
         }
     }
 }
@@ -128,28 +130,71 @@ impl UiProcessClient {
         }
         loop {
             self.ensure_ready().await?;
-            let sender = {
+            let disconnected = {
                 let state = self.inner.state.lock().await;
-                state.sender.clone()
+                if !matches!(state.phase, UiProcessPhase::Ready { .. }) {
+                    false
+                } else if let Some(sender) = state.sender.as_ref() {
+                    if sender.send(command.clone()).is_ok() {
+                        return Ok(());
+                    }
+                    true
+                } else {
+                    true
+                }
             };
-            if let Some(sender) = sender
-                && sender.send(command.clone()).is_ok()
-            {
-                return Ok(());
+            if disconnected {
+                self.mark_disconnected(None).await;
             }
-            self.mark_disconnected(None).await;
         }
     }
 
     /// Delivers an update only to the currently ready GUI. It never starts a process.
     pub(crate) async fn send_if_ready(&self, command: AgentToUi) -> bool {
-        let sender = {
-            let state = self.inner.state.lock().await;
-            matches!(state.phase, UiProcessPhase::Ready { .. })
-                .then(|| state.sender.clone())
-                .flatten()
+        let state = self.inner.state.lock().await;
+        matches!(state.phase, UiProcessPhase::Ready { .. })
+            && state
+                .sender
+                .as_ref()
+                .is_some_and(|sender| sender.send(command).is_ok())
+    }
+
+    /// Atomically prevents new presentation commands and approves an idle GUI exit.
+    pub(crate) async fn approve_idle_exit(&self, request_id: Uuid, generation: u64) {
+        let mut state = self.inner.state.lock().await;
+        if state.phase != (UiProcessPhase::Ready { generation }) {
+            return;
+        }
+        let Some(sender) = state.sender.as_ref() else {
+            return;
         };
-        sender.is_some_and(|sender| sender.send(command).is_ok())
+        if sender
+            .send(AgentToUi::IdleExitApproved {
+                request_id,
+                process_generation: generation,
+            })
+            .is_ok()
+        {
+            state.phase = UiProcessPhase::Stopping { generation };
+            state.idle_exit_request = Some(request_id);
+            drop(state);
+            self.inner.state_changed.notify_waiters();
+        }
+    }
+
+    /// Returns a still-connected GUI to Ready when queued activity invalidated its idle claim.
+    pub(crate) async fn cancel_idle_exit(&self, request_id: Uuid, generation: u64) {
+        let mut state = self.inner.state.lock().await;
+        if state.phase == (UiProcessPhase::Stopping { generation })
+            && state.idle_exit_request == Some(request_id)
+            && state.sender.is_some()
+            && !self.inner.shutting_down.load(Ordering::Acquire)
+        {
+            state.phase = UiProcessPhase::Ready { generation };
+            state.idle_exit_request = None;
+            drop(state);
+            self.inner.state_changed.notify_waiters();
+        }
     }
 
     /// Requests orderly GUI shutdown and prevents later respawn from this Agent instance.
@@ -161,6 +206,7 @@ impl UiProcessClient {
             if let Some(generation) = generation {
                 state.phase = UiProcessPhase::Stopping { generation };
             }
+            state.idle_exit_request = None;
             (state.sender.take(), state.kill_sender.clone(), generation)
         };
         if let Some(sender) = sender {
@@ -194,6 +240,16 @@ impl UiProcessClient {
             }
             notified.await;
         }
+    }
+
+    pub(crate) async fn phase(&self) -> UiProcessPhase {
+        self.inner.state.lock().await.phase
+    }
+
+    pub(crate) async fn wait_for_stopped(&self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, self.wait_until_stopped())
+            .await
+            .is_ok()
     }
 
     async fn ensure_ready(&self) -> Result<(), UiProcessError> {
@@ -378,6 +434,7 @@ impl UiProcessClient {
                 generation: process_generation,
             };
             state.sender = Some(outbound);
+            state.idle_exit_request = None;
         }
         self.inner.state_changed.notify_waiters();
         tracing::info!(event = "ui_process_ready", generation = process_generation);
@@ -437,6 +494,7 @@ impl UiProcessClient {
                 generation: current,
             };
             state.sender = None;
+            state.idle_exit_request = None;
             state.kill_sender.clone()
         };
         if let Some(kill_sender) = kill_sender {
@@ -451,6 +509,7 @@ impl UiProcessClient {
             state.phase = UiProcessPhase::Stopped;
             state.sender = None;
             state.kill_sender = None;
+            state.idle_exit_request = None;
             drop(state);
             self.inner.state_changed.notify_waiters();
         }
@@ -541,6 +600,7 @@ mod tests {
             phase: UiProcessPhase::Starting { generation: 41 },
             sender: None,
             kill_sender: None,
+            idle_exit_request: None,
         };
         state.phase = UiProcessPhase::Stopping { generation: 41 };
         assert_eq!(phase_generation(state.phase), Some(41));

@@ -120,6 +120,11 @@ impl UiIpcClient {
         self.requests.clone()
     }
 
+    #[must_use]
+    pub(crate) const fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub(crate) fn announce_exit(&self) {
         let _ = self.requests.event(UiToAgent::Exiting {
             process_generation: self.generation,

@@ -58,6 +58,9 @@ impl std::fmt::Debug for NativeAgentEvent {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    if std::env::args().any(|argument| argument == "--ui-process-check") {
+        return ui_process_check();
+    }
     init_tracing();
     tracing::info!(
         version = lvos_core::SOFTWARE_VERSION,
@@ -69,6 +72,161 @@ fn main() -> Result<(), Box<dyn Error>> {
     return Err("lvos-agent requires Windows or macOS".into());
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     run_agent()
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn ui_process_check() -> Result<(), Box<dyn Error>> {
+    use lvos_ipc::{MainUiSnapshot, UiSnapshot};
+    use ui_process::UiProcessPhase;
+
+    init_tracing();
+    let data_root = std::env::temp_dir().join(format!("lvos-ui-process-check-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&data_root)?;
+    let runtime = tokio::runtime::Runtime::new()?;
+    let result = runtime.block_on(async {
+        let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<UiToAgent>();
+        let snapshot_provider: SnapshotProvider = Arc::new(|| {
+            Box::pin(async {
+                let mut main = MainUiSnapshot::default();
+                main.preferences.popup_idle_timeout_secs = 0;
+                UiSnapshot { revision: 0, main }
+            })
+        });
+        let ui = UiProcessClient::start(&data_root, snapshot_provider, inbound_tx)?;
+        let first_display = Uuid::new_v4();
+        ui.send(AgentToUi::BeginLookup {
+            display_session_id: first_display,
+            state: check_lookup_state(1),
+        })
+        .await?;
+        let first_generation = match ui.phase().await {
+            UiProcessPhase::Ready { generation } => generation,
+            phase => return Err(format!("first UI was not ready: {phase:?}").into()),
+        };
+        ui.send(AgentToUi::HideLookup {
+            display_session_id: first_display,
+        })
+        .await?;
+        let (exit_request, generation) = next_idle_exit(&mut inbound_rx).await?;
+
+        // Queue activity before approval. It must reach this process first, cancel the exit, and
+        // return the same lifecycle generation to Ready.
+        let raced_display = Uuid::new_v4();
+        ui.send(AgentToUi::BeginLookup {
+            display_session_id: raced_display,
+            state: check_lookup_state(2),
+        })
+        .await?;
+        ui.approve_idle_exit(exit_request, generation).await;
+        ui.cancel_idle_exit(Uuid::new_v4(), generation).await;
+        if ui.phase().await != (UiProcessPhase::Stopping { generation }) {
+            return Err("stale idle cancellation changed the process lifecycle".into());
+        }
+        let (cancel_request, cancel_generation) = next_idle_cancel(&mut inbound_rx).await?;
+        ui.cancel_idle_exit(cancel_request, cancel_generation).await;
+        if ui.phase().await
+            != (UiProcessPhase::Ready {
+                generation: first_generation,
+            })
+        {
+            return Err("queued lookup did not cancel the idle exit".into());
+        }
+
+        ui.send(AgentToUi::HideLookup {
+            display_session_id: raced_display,
+        })
+        .await?;
+        let (exit_request, generation) = next_idle_exit(&mut inbound_rx).await?;
+        ui.approve_idle_exit(exit_request, generation).await;
+        if !ui.wait_for_stopped(Duration::from_secs(10)).await {
+            return Err("first UI process did not exit after becoming idle".into());
+        }
+        if ui
+            .send_if_ready(AgentToUi::UpdateLookup {
+                display_session_id: raced_display,
+                state: check_lookup_state(2),
+            })
+            .await
+        {
+            return Err("late lookup result revived an exited UI process".into());
+        }
+
+        ui.send(AgentToUi::OpenMainWindow).await?;
+        let rebuilt_generation = match ui.phase().await {
+            UiProcessPhase::Ready { generation } => generation,
+            phase => return Err(format!("rebuilt UI was not ready: {phase:?}").into()),
+        };
+        if rebuilt_generation <= first_generation {
+            return Err("UI lifecycle generation did not advance across process rebuild".into());
+        }
+        ui.send(AgentToUi::HideMainWindow).await?;
+        let (exit_request, generation) = next_idle_exit(&mut inbound_rx).await?;
+        ui.approve_idle_exit(exit_request, generation).await;
+        if !ui.wait_for_stopped(Duration::from_secs(10)).await {
+            return Err("rebuilt UI process did not exit after becoming idle".into());
+        }
+        ui.shutdown().await;
+        Ok::<(), Box<dyn Error>>(())
+    });
+    drop(runtime);
+    std::fs::remove_dir_all(&data_root)?;
+    result?;
+    println!("UI process lifecycle check passed");
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn ui_process_check() -> Result<(), Box<dyn Error>> {
+    Err("UI process lifecycle check requires a supported desktop host".into())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn check_lookup_state(query_id: u64) -> lvos_ipc::LookupUiState {
+    lvos_ipc::LookupUiState::Error {
+        query_id,
+        source: "Process lifecycle fixture".to_owned(),
+        kind: lvos_ipc::LookupErrorKind::TranslationUnavailable,
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+async fn next_idle_exit(
+    inbound: &mut mpsc::UnboundedReceiver<UiToAgent>,
+) -> Result<(Uuid, u64), Box<dyn Error>> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(message) = inbound.recv().await {
+            if let UiToAgent::RequestIdleExit {
+                request_id,
+                process_generation,
+            } = message
+            {
+                return Ok((request_id, process_generation));
+            }
+        }
+        Err("UI IPC closed before requesting idle exit".into())
+    })
+    .await
+    .map_err(|_| "timed out waiting for UI idle exit")?
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+async fn next_idle_cancel(
+    inbound: &mut mpsc::UnboundedReceiver<UiToAgent>,
+) -> Result<(Uuid, u64), Box<dyn Error>> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(message) = inbound.recv().await {
+            if let UiToAgent::CancelIdleExit {
+                request_id,
+                process_generation,
+            } = message
+            {
+                return Ok((request_id, process_generation));
+            }
+        }
+        Err("UI IPC closed before cancelling idle exit".into())
+    })
+    .await
+    .map_err(|_| "timed out waiting for UI idle cancellation")?
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
