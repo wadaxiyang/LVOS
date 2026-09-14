@@ -1,12 +1,12 @@
-import { Button, Palette } from "std-widgets.slint";
-import { Theme, ThemeMode, Motion } from "@quadrant-kit";
+import { Palette } from "std-widgets.slint";
+import { Theme, ThemeMode, Motion, Typography, UiConstants, PageHeader, FluentInfoBar, InfoBarKind, FluentButton, FluentScrollView } from "@quadrant-kit";
 
 export component PermissionWindow inherits Window {
     title: "LVOS Permissions";
     icon: @image-url("../icons/logo.svg");
-    width: 520px;
-    height: 300px;
-    background: #f8f9fc;
+    width: 640px;
+    height: 400px;
+    background: Theme.background;
     // Globals belong to this Window instance. Keep the existing light policy.
     default-font-family: Theme.ui_font_family;
     init => {
@@ -24,27 +24,23 @@ export component PermissionWindow inherits Window {
     callback restart-requested;
 
     VerticalLayout {
-        padding: 32px;
-        spacing: 18px;
-        Text { text: "Allow LVOS to capture selected text"; color: #111827; font-size: 23px; font-weight: 700; }
-        Text {
-            text: "macOS requires Accessibility permission before LVOS can send Cmd+C. LVOS only sends it after you press the configured global hotkey.";
-            color: #4b5563;
-            font-size: 14px;
-            wrap: word-wrap;
+        padding: UiConstants.space_24;
+        spacing: UiConstants.space_16;
+        PageHeader { title: "Permissions"; subtitle: "Allow LVOS to capture selected text."; }
+        Text { text: "macOS requires Accessibility permission before LVOS can send Cmd+C. LVOS only sends it after you press the configured global hotkey.";
+            color: Theme.text_secondary; font-size: Typography.body; wrap: word-wrap;
         }
-        Rectangle {
-            height: 54px;
-            border-radius: 9px;
-            background: #fff7ed;
-            Text { x: 14px; width: parent.width - 28px; text: root.status-text; color: #9a3412; vertical-alignment: center; wrap: word-wrap; }
+        FluentInfoBar { message: "Accessibility access"; kind: InfoBarKind.warning; closable: false; }
+        FluentScrollView {
+            horizontal-scrollbar-policy: always-off;
+            viewport-width: self.visible-width;
+            Text { width: parent.visible-width; text: root.status-text; color: Theme.text_primary; font-size: Typography.body; wrap: word-wrap; }
         }
         HorizontalLayout {
-            alignment: end;
-            spacing: 10px;
-            Button { text: "Open Accessibility Settings"; clicked => { root.open-settings(); } }
-            Button { text: "Check Again"; clicked => { root.check-again(); } }
-            Button { text: "Restart LVOS"; clicked => { root.restart-requested(); } }
+            alignment: end; spacing: UiConstants.space_12;
+            FluentButton { text: "Open Accessibility Settings"; clicked => { root.open-settings(); } }
+            FluentButton { text: "Check Again"; clicked => { root.check-again(); } }
+            FluentButton { text: "Restart LVOS"; clicked => { root.restart-requested(); } }
         }
     }
 }

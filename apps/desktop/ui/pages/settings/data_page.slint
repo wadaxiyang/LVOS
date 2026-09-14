@@ -1,6 +1,8 @@
 import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentIcons, UiConstants } from "@quadrant-kit";
 
 export component DataSettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
+    public function restore-focus() { import-button.focus(); }
 
 
     callback export-data-requested;
@@ -16,8 +18,8 @@ export component DataSettingsPage inherits VerticalLayout {
             spacing: UiConstants.space_12;
             SettingRow { title: "Portable archive"; description: "Includes history and favorites. Credentials, sessions, and installation identity are excluded."; }
             HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
-                FluentButton { text: "Import data"; icon: FluentIcons.folder_open; clicked => { root.import-data-requested(); } }
-                FluentButton { text: "Export data"; icon: FluentIcons.backup; clicked => { root.export-data-requested(); } }
+                import-button := FluentButton { enabled: root.interaction-enabled; text: "Import data"; icon: FluentIcons.folder_open; clicked => { root.import-data-requested(); } }
+                FluentButton { enabled: root.interaction-enabled; text: "Export data"; icon: FluentIcons.backup; clicked => { root.export-data-requested(); } }
             }
         }
     }

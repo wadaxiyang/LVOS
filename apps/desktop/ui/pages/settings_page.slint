@@ -10,6 +10,13 @@ import { DataSettingsPage } from "settings/data_page.slint";
 import { UpdateSettingsPage } from "settings/update_page.slint";
 
 export component SettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
+    public function restore-focus(target: int, device-id: string) {
+        general.restore-focus();
+        if target == 1 { devices.restore-focus(device-id); }
+        if target == 2 { account.restore-focus(); }
+        if target == 3 { data.restore-focus(); }
+    }
     in-out property <int> settings-page: 0;
     in property <[DeviceRecord]> devices;
     in-out property <string> tokenhub-model: "hy-mt2-lite";
@@ -81,7 +88,7 @@ export component SettingsPage inherits VerticalLayout {
             width: scroll.visible-width;
             spacing: UiConstants.space_24;
             padding-right: UiConstants.space_4;
-            general := GeneralSettingsPage {
+            general := GeneralSettingsPage { interaction-enabled: root.interaction-enabled;
                 proxy-kind <=> root.proxy-kind;
                 proxy-address <=> root.proxy-address;
                 provider-proxy-enabled <=> root.provider-proxy-enabled;
@@ -95,7 +102,7 @@ export component SettingsPage inherits VerticalLayout {
                 update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
                 feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
             }
-            translation := TranslationSettingsPage {
+            translation := TranslationSettingsPage { interaction-enabled: root.interaction-enabled;
                 tokenhub-model <=> root.tokenhub-model;
                 provider-proxy-enabled <=> root.provider-proxy-enabled;
                 tokenhub-configured: root.tokenhub-configured;
@@ -105,7 +112,7 @@ export component SettingsPage inherits VerticalLayout {
                 feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
                 section-visible: translation.y + translation.height + scroll.viewport-y > 0px && translation.y + scroll.viewport-y < scroll.visible-height;
             }
-            account := AccountSettingsPage {
+            account := AccountSettingsPage { interaction-enabled: root.interaction-enabled;
                 server-url: root.server-url;
                 username: root.username;
                 login-requested(server, username, password) => { root.login-requested(server, username, password); }
@@ -113,25 +120,25 @@ export component SettingsPage inherits VerticalLayout {
                 regenerate-device-identity-requested() => { root.regenerate-device-identity-requested(); }
                 section-visible: account.y + account.height + scroll.viewport-y > 0px && account.y + scroll.viewport-y < scroll.visible-height;
             }
-            sync := SyncSettingsPage {
+            sync := SyncSettingsPage { interaction-enabled: root.interaction-enabled;
                 server-url: root.server-url;
                 current-device: root.current-device;
                 sync-status: root.sync-status;
                 manual-sync-requested() => { root.manual-sync-requested(); }
                 test-connection-requested() => { root.test-connection-requested(); }
             }
-            devices := DevicesSettingsPage {
+            devices := DevicesSettingsPage { interaction-enabled: root.interaction-enabled;
                 devices: root.devices;
                 revoke-device-requested(device-id) => { root.revoke-device-requested(device-id); }
             }
-            history := HistorySettingsPage {
+            history := HistorySettingsPage { interaction-enabled: root.interaction-enabled;
                 clear-history-requested() => { root.clear-history-requested(); }
             }
-            data := DataSettingsPage {
+            data := DataSettingsPage { interaction-enabled: root.interaction-enabled;
                 export-data-requested() => { root.export-data-requested(); }
                 import-data-requested() => { root.import-data-requested(); }
             }
-            update := UpdateSettingsPage {
+            update := UpdateSettingsPage { interaction-enabled: root.interaction-enabled;
                 proxy-kind <=> root.proxy-kind;
                 proxy-address <=> root.proxy-address;
                 provider-proxy-enabled <=> root.provider-proxy-enabled;

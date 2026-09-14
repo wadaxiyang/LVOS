@@ -1,5 +1,5 @@
 import { Palette } from "std-widgets.slint";
-import { Theme, ThemeMode, Motion, NavigationView, NavigationPaneMode, FluentInfoBar, InfoBarKind, FluentScrollView, Typography, UiConstants } from "@quadrant-kit";
+import { Theme, ThemeMode, Motion, NavigationView, NavigationPaneMode, FluentInfoBar, InfoBarKind, ModalManager, ModalKind, FluentScrollView, Typography, UiConstants } from "@quadrant-kit";
 import { UiRecord, DeviceRecord, FeedbackKind } from "../model/ui_types.slint";
 import { LvosNavigation } from "../product/navigation.slint";
 import { HistoryPage } from "../pages/history_page.slint";
@@ -72,17 +72,43 @@ export component MainWindow inherits Window {
     callback update-start-at-login(bool) -> string;
     callback update-launch-minimized(bool) -> string;
 
-    NavigationView {
+    in-out property <bool> confirmation-shown: false;
+    in property <int> confirmation-id;
+    in property <string> confirmation-title;
+    in property <string> confirmation-message;
+    in property <string> confirmation-primary;
+    in property <int> confirmation-focus-target;
+    in property <string> confirmation-device-id;
+    out property <bool> confirmation-blocking: confirmation-shown || modal.presented;
+    callback confirmation-resolved(int, bool);
+    callback confirmation-cancelled;
+    callback confirmation-visibility-changed(bool);
+    private property <bool> restore-pending;
+    private property <int> restore-epoch;
+    changed confirmation-blocking => {
+        root.confirmation-visibility-changed(root.confirmation-blocking);
+        LvosNavigation.enabled = !root.confirmation-blocking;
+        if !root.confirmation-blocking && root.restore-pending {
+            root.restore-pending = false;
+            root.restore-epoch += 1;
+        }
+    }
+    background-focus := FocusScope {
+      width: 100%; height: 100%;
+      enabled: !root.confirmation-blocking;
+      NavigationView {
+        width: 100%; height: 100%;
+        show_pane_toggle: !root.confirmation-blocking;
         pane_title: "LVOS";
         pane_width: 200px;
         items: LvosNavigation.main-items;
         footer_items: LvosNavigation.footer-items;
         selected_id: LvosNavigation.main-id(root.active-page);
         pane_mode: root.sidebar-collapsed ? NavigationPaneMode.compact : NavigationPaneMode.expanded;
-        pane_toggle_requested => { root.sidebar-collapsed = !root.sidebar-collapsed; }
+        pane_toggle_requested => { if !root.confirmation-blocking { root.sidebar-collapsed = !root.sidebar-collapsed; } }
         item_invoked(id) => {
             let page = LvosNavigation.main-index(id);
-            if page >= 0 { root.active-page = page; }
+            if page >= 0 && !root.confirmation-blocking { root.active-page = page; }
         }
         VerticalLayout {
             if root.settings-error != "": VerticalLayout {
@@ -111,20 +137,29 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-            if root.active-page == 0: HistoryPage {
+            if root.active-page == 0: history-page := HistoryPage {
+                in property <int> restore-request: root.restore-epoch;
+                changed restore-request => { self.restore-focus(); }
+                interaction-enabled: !root.confirmation-blocking;
                 search-text <=> root.search-text;
                 history-records: root.history-records;
                 history-search(value) => { root.history-search(value); }
                 favorite-toggled(key, currently-favorite) => { root.favorite-toggled(key, currently-favorite); }
                 clear-history-requested() => { root.clear-history-requested(); }
             }
-            if root.active-page == 1: FavoritesPage {
+            if root.active-page == 1: favorites-page := FavoritesPage {
+                in property <int> restore-request: root.restore-epoch;
+                changed restore-request => { self.restore-focus(); }
+                interaction-enabled: !root.confirmation-blocking;
                 search-text <=> root.search-text;
                 favorite-records: root.favorite-records;
                 favorites-search(value) => { root.favorites-search(value); }
                 favorite-toggled(key, currently-favorite) => { root.favorite-toggled(key, currently-favorite); }
             }
-            if root.active-page == 2: SettingsPage {
+            if root.active-page == 2: settings := SettingsPage {
+                in property <int> restore-request: root.restore-epoch;
+                changed restore-request => { self.restore-focus(root.confirmation-focus-target, root.confirmation-device-id); }
+                interaction-enabled: !root.confirmation-blocking;
                 settings-page <=> root.settings-page;
                 settings-scroll-y <=> root.settings-scroll-y;
                 settings-feedback-kind <=> root.settings-feedback-kind;
@@ -163,5 +198,20 @@ export component MainWindow inherits Window {
                 update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
             }
         }
+    }
+    }
+    modal := ModalManager {
+        width: 100%; height: 100%;
+        shown: root.confirmation-shown;
+        title: root.confirmation-title;
+        message: root.confirmation-message;
+        primary_text: root.confirmation-primary;
+        secondary_text: "Cancel";
+        show_secondary: true;
+        kind: ModalKind.danger;
+        danger_primary: true;
+        accepted => { root.confirmation-resolved(root.confirmation-id, true); }
+        dismissed => { root.confirmation-resolved(root.confirmation-id, false); }
+        restore_focus_requested => { root.restore-pending = true; if !root.confirmation-blocking { root.restore-pending = false; root.restore-epoch += 1; } }
     }
 }

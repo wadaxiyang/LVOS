@@ -2,6 +2,8 @@ import { PageHeader, FluentTextField, FluentScrollView, EmptyState, Badge, Badge
 import { UiRecord } from "../model/ui_types.slint";
 import { RecordCard } from "../components/record_card.slint";
 export component FavoritesPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
+    public function restore-focus() { search.focus(); }
     in-out property <string> search-text;
     in property <[UiRecord]> favorite-records;
     callback favorites-search(string);
@@ -12,7 +14,7 @@ export component FavoritesPage inherits VerticalLayout {
     HorizontalLayout {
         vertical-stretch: 0;
         spacing: UiConstants.space_12;
-        FluentTextField { horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search favorites"; edited(value) => { root.favorites-search(value); } }
+        search := FluentTextField { enabled: root.interaction-enabled; horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search favorites"; edited(value) => { root.favorites-search(value); } }
     }
     HorizontalLayout {
         alignment: start;
@@ -24,7 +26,7 @@ export component FavoritesPage inherits VerticalLayout {
         viewport-width: self.visible-width;
         VerticalLayout {
             spacing: UiConstants.space_12;
-            for item in root.favorite-records: RecordCard { item: item; favorite-toggled(key) => { root.favorite-toggled(key, true); } }
+            for item in root.favorite-records: RecordCard { interaction-enabled: root.interaction-enabled; item: item; favorite-toggled(key) => { root.favorite-toggled(key, true); } }
             if root.favorite-records.length == 0: EmptyState { title: "Nothing saved yet"; message: "Use the star action on a lookup to keep it here."; icon: @image-url("../icons/star.svg"); }
         }
     }

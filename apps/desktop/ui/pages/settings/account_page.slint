@@ -1,6 +1,8 @@
 import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, Theme, Typography, UiConstants } from "@quadrant-kit";
 
 export component AccountSettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
+    public function restore-focus() { identity.focus(); }
     in property <string> server-url: "https://lvos.niuniu770.site";
     in property <string> username;
 
@@ -19,18 +21,18 @@ export component AccountSettingsPage inherits VerticalLayout {
             padding: UiConstants.space_20;
             spacing: UiConstants.space_12;
             Text { text: "Server URL"; color: Theme.text_primary; font-size: Typography.body; }
-            server := FluentTextField { text: root.server-url; accessible-role: groupbox; accessible-label: "Server URL"; }
+            server := FluentTextField { enabled: root.interaction-enabled; text: root.server-url; accessible-role: groupbox; accessible-label: "Server URL"; }
             Text { text: "Username"; color: Theme.text_primary; font-size: Typography.body; }
-            user := FluentTextField { text: root.username; accessible-role: groupbox; accessible-label: "Username"; }
+            user := FluentTextField { enabled: root.interaction-enabled; text: root.username; accessible-role: groupbox; accessible-label: "Username"; }
             Text { text: "Password"; color: Theme.text_primary; font-size: Typography.body; }
-            password := FluentTextField { min-width: 160px; input-type: InputType.password; placeholder_text: "Never stored"; accessible-role: groupbox; accessible-label: "Account password"; }
+            password := FluentTextField { enabled: root.interaction-enabled; min-width: 160px; input-type: InputType.password; placeholder_text: "Never stored"; accessible-role: groupbox; accessible-label: "Account password"; }
             HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
-                FluentButton { text: "Sign out"; clicked => { root.logout-requested(); } }
-                FluentButton { text: "Sign in"; primary: true; clicked => { root.login-requested(server.text, user.text, password.text); } }
+                FluentButton { enabled: root.interaction-enabled; text: "Sign out"; clicked => { root.logout-requested(); } }
+                FluentButton { enabled: root.interaction-enabled; text: "Sign in"; primary: true; clicked => { root.login-requested(server.text, user.text, password.text); } }
             }
             SettingRow { title: "Device identity"; description: "Replace this installation's identity if it has been revoked."; }
             HorizontalLayout { alignment: end;
-                FluentButton { text: "Replace revoked device identity…"; clicked => { root.regenerate-device-identity-requested(); } }
+                identity := FluentButton { enabled: root.interaction-enabled; text: "Replace revoked device identity…"; clicked => { root.regenerate-device-identity-requested(); } }
             }
         }
     }

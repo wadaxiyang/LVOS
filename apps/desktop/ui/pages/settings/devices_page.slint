@@ -2,7 +2,11 @@ import { SurfaceCard, SettingRow, SectionHeader, FluentButton, EmptyState, UiCon
 import { DeviceRecord } from "../../model/ui_types.slint";
 
 export component DevicesSettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
     in property <[DeviceRecord]> devices;
+    private property <int> focus-epoch;
+    private property <string> focus-device;
+    public function restore-focus(id: string) { root.focus-device = id; root.focus-epoch += 1; }
 
     callback revoke-device-requested(string);
 
@@ -11,12 +15,14 @@ export component DevicesSettingsPage inherits VerticalLayout {
     vertical-stretch: 0;
     SectionHeader { title: "Devices"; description: "Review installations associated with this account."; }
     for device in root.devices: SurfaceCard {
+        in property <int> requested-focus: root.focus-epoch;
+        changed requested-focus => { if device.id == root.focus-device && !device.revoked && root.interaction-enabled { revoke.focus(); } }
         VerticalLayout {
             padding: UiConstants.space_20;
             SettingRow {
                 title: device.name + (device.current ? " · Current" : "");
                 description: device.platform + " · " + device.last-seen;
-                FluentButton { text: device.revoked ? "Revoked" : "Revoke"; danger: !device.revoked; enabled: !device.revoked;
+                revoke := FluentButton { text: device.revoked ? "Revoked" : "Revoke"; danger: !device.revoked; enabled: root.interaction-enabled && !device.revoked;
                     clicked => { root.revoke-device-requested(device.id); }
                 }
             }

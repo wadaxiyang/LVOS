@@ -2,6 +2,8 @@ import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, 
 import { FeedbackKind } from "../../model/ui_types.slint";
 
 export component GeneralSettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
+    public function restore-focus() { hotkey.focus(); }
     in-out property <int> proxy-kind: 0;
     in-out property <string> proxy-address;
     in-out property <bool> provider-proxy-enabled: false;
@@ -28,8 +30,8 @@ export component GeneralSettingsPage inherits VerticalLayout {
             SettingRow { title: "Global shortcut"; description: "Use this shortcut after selecting text in another app."; }
             HorizontalLayout {
                 spacing: UiConstants.space_12;
-                hotkey := FluentTextField { horizontal-stretch: 1; text: root.global-hotkey; accessible-role: groupbox; accessible-label: "Global shortcut"; }
-                FluentButton { text: "Save shortcut"; clicked => {
+                hotkey := FluentTextField { enabled: root.interaction-enabled; horizontal-stretch: 1; text: root.global-hotkey; accessible-role: groupbox; accessible-label: "Global shortcut"; }
+                FluentButton { enabled: root.interaction-enabled; text: "Save shortcut"; clicked => {
                     let draft = hotkey.text;
                     let error = root.update-global-hotkey(draft);
                     if error == "" { root.global-hotkey = draft; }
@@ -40,7 +42,7 @@ export component GeneralSettingsPage inherits VerticalLayout {
             }
             SettingRow {
                 title: "Start at login"; description: "Open LVOS when you sign in to this computer.";
-                FluentSwitch { checked <=> root.start-at-login; accessible-label: "Start at login"; toggled => {
+                FluentSwitch { enabled: root.interaction-enabled; checked <=> root.start-at-login; accessible-label: "Start at login"; toggled => {
                     let error = root.update-start-at-login(self.checked);
                     if error != "" { self.checked = !self.checked; }
                     let success = error == ""; root.feedback(success ? "Startup preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
@@ -48,7 +50,7 @@ export component GeneralSettingsPage inherits VerticalLayout {
             }
             SettingRow {
                 title: "Launch minimized"; description: "Keep LVOS in the system tray on startup.";
-                FluentSwitch { checked <=> root.launch-minimized; accessible-label: "Launch minimized"; toggled => {
+                FluentSwitch { enabled: root.interaction-enabled; checked <=> root.launch-minimized; accessible-label: "Launch minimized"; toggled => {
                     let error = root.update-launch-minimized(self.checked);
                     if error != "" { self.checked = !self.checked; }
                     let success = error == ""; root.feedback(success ? "Launch preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
@@ -62,11 +64,11 @@ export component GeneralSettingsPage inherits VerticalLayout {
             spacing: UiConstants.space_12;
             SettingRow {
                 title: "Network proxy"; description: "Translation and update checks opt in separately below.";
-                proxy-type := FluentComboBox { width: 120px; model: ["HTTP", "SOCKS5"]; current-index <=> root.proxy-kind; accessible-label: "Proxy type"; }
+                proxy-type := FluentComboBox { enabled: root.interaction-enabled; width: 120px; model: ["HTTP", "SOCKS5"]; current-index <=> root.proxy-kind; accessible-label: "Proxy type"; }
             }
-            proxy-address := FluentTextField { text <=> root.proxy-address; placeholder_text: "127.0.0.1:7890"; accessible-role: groupbox; accessible-label: "Proxy address"; }
+            proxy-address := FluentTextField { enabled: root.interaction-enabled; text <=> root.proxy-address; placeholder_text: "127.0.0.1:7890"; accessible-role: groupbox; accessible-label: "Proxy address"; }
             HorizontalLayout { alignment: end;
-                FluentButton { text: "Save network"; clicked => {
+                FluentButton { enabled: root.interaction-enabled; text: "Save network"; clicked => {
                     let error = root.persist-network-settings(proxy-address.text, proxy-type.current-index, root.provider-proxy-enabled, root.update-proxy-enabled);
                     let success = error == ""; root.feedback(success ? "Network settings saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
                 } }

@@ -10,9 +10,9 @@ use std::{path::PathBuf, sync::Arc};
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use lvos::{
-    DesktopApplication, GitHubUpdateConfig, GitHubUpdateService, HttpUpdateTransport,
-    LocalPreferenceStore, LookupMode, NativeReleasePageOpener, NetworkPreferences,
-    ProviderPreferences, ProxyKind, UpdateCheckOutcome, UpdateCoordinator,
+    ConfirmationRequest, DesktopApplication, GitHubUpdateConfig, GitHubUpdateService,
+    HttpUpdateTransport, LocalPreferenceStore, LookupMode, NativeReleasePageOpener,
+    NetworkPreferences, ProviderPreferences, ProxyKind, UpdateCheckOutcome, UpdateCoordinator,
 };
 use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
@@ -355,8 +355,10 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let login_application = Arc::clone(&application);
     let login_handle = handle.clone();
+    let login_confirmations = ui.confirmations().clone();
     ui.main_window()
         .on_login_requested(move |server, username, password| {
+            login_confirmations.invalidate();
             if let Some(main) = main.upgrade() {
                 main.set_sync_status("Signing in…".into());
             }
@@ -401,7 +403,9 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let logout_application = Arc::clone(&application);
     let logout_handle = handle.clone();
+    let logout_confirmations = ui.confirmations().clone();
     ui.main_window().on_logout_requested(move || {
+        logout_confirmations.invalidate();
         let main = main.clone();
         let application = Arc::clone(&logout_application);
         logout_handle.spawn(async move {
@@ -457,22 +461,20 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let revoke_application = Arc::clone(&application);
     let revoke_handle = handle.clone();
+    let revoke_confirmations = ui.confirmations().clone();
     ui.main_window().on_revoke_device_requested(move |device_id| {
+        let confirmations = revoke_confirmations.clone();
+        let epoch = confirmations.epoch();
         let main = main.clone();
         let application = Arc::clone(&revoke_application);
         revoke_handle.spawn(async move {
             let is_current = device_id.as_str() == application.installation().device_id.to_string();
-            if is_current {
-                let confirmed = rfd::AsyncMessageDialog::new()
-                    .set_title("Revoke this Device?")
-                    .set_description("This immediately logs out this installation. Its Device identity remains revoked until you explicitly replace it.")
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    .await;
-                if confirmed != rfd::MessageDialogResult::Yes {
-                    return;
-                }
-            }
+            if is_current && !confirmations.confirm(epoch, ConfirmationRequest {
+                    title: "Revoke this device?".into(),
+                    message: "This logs out this installation. Its device identity remains revoked until you explicitly replace it.".into(),
+                    primary: "Revoke".into(), focus_target: 1, device_id: device_id.to_string(),
+                }).await { return; }
+            if !confirmations.is_current(epoch) { return; }
             match application.revoke_device(device_id.as_str()).await {
                 Ok(()) if is_current => {
                     let _ = application.logout().await;
@@ -489,19 +491,18 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let recovery_application = Arc::clone(&application);
     let recovery_handle = handle.clone();
+    let recovery_confirmations = ui.confirmations().clone();
     ui.main_window().on_regenerate_device_identity_requested(move || {
+        let confirmations = recovery_confirmations.clone();
+        let epoch = confirmations.epoch();
         let main = main.clone();
         let application = Arc::clone(&recovery_application);
         recovery_handle.spawn(async move {
-            let confirmed = rfd::AsyncMessageDialog::new()
-                .set_title("Replace revoked Device identity?")
-                .set_description("This creates a new permanent installation Device ID, removes old sessions, and preserves Profiles and pending Outbox data. Continue only after this installation was revoked.")
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show()
-                .await;
-            if confirmed != rfd::MessageDialogResult::Yes {
-                return;
-            }
+            if !confirmations.confirm(epoch, ConfirmationRequest {
+                title: "Replace device identity?".into(),
+                message: "Creates a new installation ID and removes old sessions. Profiles and pending Outbox data are preserved. Continue only after this installation was revoked.".into(),
+                primary: "Replace".into(), focus_target: 2, device_id: String::new(),
+            }).await || !confirmations.is_current(epoch) { return; }
             match application.recover_revoked_device().await {
                 Ok(()) => apply_account_state(
                     &main,
@@ -551,7 +552,10 @@ fn install_local_ui_callbacks(
     let main = ui.main_window().as_weak();
     let import_application = Arc::clone(&application);
     let import_handle = handle.clone();
+    let import_confirmations = ui.confirmations().clone();
     ui.main_window().on_import_data_requested(move || {
+        let confirmations = import_confirmations.clone();
+        let epoch = confirmations.epoch();
         let main = main.clone();
         let application = Arc::clone(&import_application);
         import_handle.spawn(async move {
@@ -593,20 +597,14 @@ fn install_local_ui_callbacks(
                 }
             };
             let preview = plan.preview();
-            let confirmed = rfd::AsyncMessageDialog::new()
-                .set_title("Import LVOS data?")
-                .set_description(format!(
-                    "History: {} add, {} update. Favorites: {} add, {} reactivate. QueryStats archive: {} records. No changes are made until you choose Yes.",
-                    preview.history_add,
-                    preview.history_update,
-                    preview.favorite_add,
-                    preview.favorite_reactivate,
-                    preview.query_stats_archive,
-                ))
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show()
-                .await;
-            if confirmed != rfd::MessageDialogResult::Yes {
+            let confirmed = confirmations.confirm(epoch, ConfirmationRequest {
+                title: "Import LVOS data?".into(),
+                message: format!("History: {} add, {} update. Favorites: {} add, {} reactivate. QueryStats archive: {} records. Nothing changes until you choose Import.",
+                    preview.history_add, preview.history_update, preview.favorite_add,
+                    preview.favorite_reactivate, preview.query_stats_archive),
+                primary: "Import".into(), focus_target: 3, device_id: String::new(),
+            }).await;
+            if !confirmed || !confirmations.is_current(epoch) {
                 set_settings_feedback(&main, "Import cancelled; no data changed.".to_owned(), lvos::FeedbackKind::Info);
                 return;
             }
@@ -807,6 +805,7 @@ fn apply_account_state(
     let status = status.to_owned();
     if let Err(error) = slint::invoke_from_event_loop(move || {
         if let Some(main) = main.upgrade() {
+            main.invoke_confirmation_cancelled();
             main.set_server_url(
                 profile
                     .server_origin
@@ -1099,7 +1098,9 @@ fn install_windows_runtime(
     let async_runtime = runtime.runtime_handle();
     let capture = Arc::new(WindowsSelectionCapture::default());
     let capture_log_path = log_path.to_path_buf();
+    let capture_confirmations = ui.confirmations().clone();
     hotkey.set_activation_handler(Arc::new(move || {
+        if capture_confirmations.is_blocking() { return; }
         tracing::info!("Windows global hotkey released; scheduling selection capture");
         let popup = popup.clone();
         let capture = Arc::clone(&capture);
@@ -1262,7 +1263,9 @@ fn install_macos_runtime(
     let permission = ui.permission_window().as_weak();
     let async_runtime = runtime.runtime_handle();
     let capture = Arc::new(lvos_platform::macos::MacOsSelectionCapture::default());
+    let capture_confirmations = ui.confirmations().clone();
     hotkey.set_pressed_handler(Arc::new(move || {
+        if capture_confirmations.is_blocking() { return; }
         let popup = popup.clone();
         let permission = permission.clone();
         let capture = Arc::clone(&capture);

@@ -2,6 +2,7 @@ import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, 
 import { FeedbackKind } from "../../model/ui_types.slint";
 
 export component TranslationSettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
     in-out property <string> tokenhub-model: "hy-mt2-lite";
     in-out property <bool> provider-proxy-enabled: false;
     in property <bool> tokenhub-configured;
@@ -25,15 +26,15 @@ export component TranslationSettingsPage inherits VerticalLayout {
             padding: UiConstants.space_20;
             spacing: UiConstants.space_12;
             Text { text: "Model"; color: Theme.text_primary; font-size: Typography.body; }
-            tokenhub-model := FluentTextField { text <=> root.tokenhub-model; placeholder_text: "hy-mt2-lite"; accessible-role: groupbox; accessible-label: "TokenHub model"; }
+            tokenhub-model := FluentTextField { enabled: root.interaction-enabled; text <=> root.tokenhub-model; placeholder_text: "hy-mt2-lite"; accessible-role: groupbox; accessible-label: "TokenHub model"; }
             Text { text: "API key"; color: Theme.text_primary; font-size: Typography.body; }
-            tokenhub-key := FluentTextField { min-width: 160px; placeholder_text: "Stored securely in the system credential store"; input-type: InputType.password; accessible-role: groupbox; accessible-label: "TokenHub API key"; }
+            tokenhub-key := FluentTextField { enabled: root.interaction-enabled; min-width: 160px; placeholder_text: "Stored securely in the system credential store"; input-type: InputType.password; accessible-role: groupbox; accessible-label: "TokenHub API key"; }
             SettingRow { title: "Provider proxy"; description: "Use the proxy configured in General for translation requests.";
-                provider-proxy := FluentSwitch { checked <=> root.provider-proxy-enabled; accessible-label: "Provider proxy"; }
+                provider-proxy := FluentSwitch { enabled: root.interaction-enabled; checked <=> root.provider-proxy-enabled; accessible-label: "Provider proxy"; }
             }
             HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
-                FluentButton { text: "Test connection"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
-                FluentButton { text: "Save"; primary: true; clicked => {
+                FluentButton { enabled: root.interaction-enabled; text: "Test connection"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
+                FluentButton { enabled: root.interaction-enabled; text: "Save"; primary: true; clicked => {
                     let error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
                     root.feedback(error, error == "" ? FeedbackKind.info : FeedbackKind.error);
                     if error == "" { root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked); tokenhub-key.text = ""; }

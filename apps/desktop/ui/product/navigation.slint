@@ -3,15 +3,16 @@ import { NavigationEntry, NavigationEntryKind, FluentIcons } from "@quadrant-kit
 // Product routes map the existing Rust page indices to stable Kit IDs.
 // MainWindow owns selection; these models carry no mutable UI state.
 export global LvosNavigation {
+    in-out property <bool> enabled: true;
     out property <[NavigationEntry]> main-items: [
         { id: "history", text: "History", icon: @image-url("../icons/history.svg"), selected_icon: @image-url("../icons/history.svg"),
-          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: true, has_children: false, expanded: false },
+          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: LvosNavigation.enabled, has_children: false, expanded: false },
         { id: "favorites", text: "Favorites", icon: @image-url("../icons/star.svg"), selected_icon: @image-url("../icons/star.svg"),
-          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: true, has_children: false, expanded: false }
+          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: LvosNavigation.enabled, has_children: false, expanded: false }
     ];
     out property <[NavigationEntry]> footer-items: [
         { id: "settings", text: "Settings", icon: FluentIcons.settings_regular, selected_icon: FluentIcons.settings_filled,
-          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: true, has_children: false, expanded: false }
+          parent_id: "", depth: 0, kind: NavigationEntryKind.destination, enabled: LvosNavigation.enabled, has_children: false, expanded: false }
     ];
 
     public pure function main-id(index: int) -> string {

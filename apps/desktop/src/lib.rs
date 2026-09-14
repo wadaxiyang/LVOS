@@ -1,6 +1,7 @@
 //! LVOS Desktop runtime orchestration.
 
 mod application;
+mod confirmation;
 mod db_worker;
 mod device_identity;
 mod generation;
@@ -20,6 +21,7 @@ pub use application::{
     ApplicationError, DesktopApplication, NetworkPreferences, ProviderPreferences, ProxyKind,
     default_server_url,
 };
+pub use confirmation::{ConfirmationBroker, ConfirmationRequest};
 pub use db_worker::{DatabaseWorker, DatabaseWorkerError};
 pub use device_identity::{DeviceIdentityError, DeviceIdentityManager};
 pub use generation::{CaptureAdmission, CaptureGate, QueryGeneration, QueryTicket};

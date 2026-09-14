@@ -1,6 +1,7 @@
 import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentIcons, UiConstants } from "@quadrant-kit";
 
 export component HistorySettingsPage inherits VerticalLayout {
+    in property <bool> interaction-enabled: true;
 
 
     callback clear-history-requested;
@@ -13,7 +14,7 @@ export component HistorySettingsPage inherits VerticalLayout {
         VerticalLayout {
             padding: UiConstants.space_20;
             SettingRow { title: "Clear local history"; description: "Favorites and their learning statistics are preserved.";
-                FluentButton { text: "Clear history"; icon: FluentIcons.delete; danger: true; clicked => { root.clear-history-requested(); } }
+                FluentButton { enabled: root.interaction-enabled; text: "Clear history"; icon: FluentIcons.delete; danger: true; clicked => { root.clear-history-requested(); } }
             }
         }
     }
