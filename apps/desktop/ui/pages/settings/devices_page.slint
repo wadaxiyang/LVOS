@@ -1,0 +1,29 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, EmptyState, UiConstants } from "@quadrant-kit";
+import { DeviceRecord } from "../../model/ui_types.slint";
+
+export component DevicesSettingsPage inherits VerticalLayout {
+    in property <[DeviceRecord]> devices;
+
+    callback revoke-device-requested(string);
+
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "Devices"; description: "Review installations associated with this account."; }
+    for device in root.devices: SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            SettingRow {
+                title: device.name + (device.current ? " · Current" : "");
+                description: device.platform + " · " + device.last-seen;
+                FluentButton { text: device.revoked ? "Revoked" : "Revoke"; danger: !device.revoked; enabled: !device.revoked;
+                    clicked => { root.revoke-device-requested(device.id); }
+                }
+            }
+        }
+    }
+    if root.devices.length == 0: EmptyState {
+        title: "No synchronized devices"; message: "Sign in to review devices associated with your account.";
+        icon: @image-url("../../icons/devices.svg");
+    }
+}

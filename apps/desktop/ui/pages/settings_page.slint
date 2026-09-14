@@ -1,0 +1,147 @@
+import { PageHeader, FluentScrollView, Theme, Typography, UiConstants } from "@quadrant-kit";
+import { DeviceRecord, FeedbackKind } from "../model/ui_types.slint";
+import { GeneralSettingsPage } from "settings/general_page.slint";
+import { TranslationSettingsPage } from "settings/translation_page.slint";
+import { AccountSettingsPage } from "settings/account_page.slint";
+import { SyncSettingsPage } from "settings/sync_page.slint";
+import { DevicesSettingsPage } from "settings/devices_page.slint";
+import { HistorySettingsPage } from "settings/history_page.slint";
+import { DataSettingsPage } from "settings/data_page.slint";
+import { UpdateSettingsPage } from "settings/update_page.slint";
+
+export component SettingsPage inherits VerticalLayout {
+    in-out property <int> settings-page: 0;
+    in property <[DeviceRecord]> devices;
+    in-out property <string> tokenhub-model: "hy-mt2-lite";
+    in-out property <int> proxy-kind: 0;
+    in-out property <string> proxy-address;
+    in-out property <bool> provider-proxy-enabled: false;
+    in-out property <bool> update-proxy-enabled: false;
+    in property <string> server-url: "https://lvos.niuniu770.site";
+    in property <string> username;
+    in property <string> current-device;
+    in property <string> sync-status: "Login required";
+    in property <string> update-status: "No update check performed";
+    in-out property <string> settings-error;
+    in property <bool> tokenhub-configured;
+    in-out property <string> global-hotkey: "⌥D";
+    in-out property <bool> start-at-login;
+    in-out property <bool> launch-minimized;
+
+    callback clear-history-requested;
+    callback validate-provider-settings(string, string) -> string;
+    callback persist-provider-settings(string, string, bool);
+    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback test-provider(string, string);
+    callback login-requested(string, string, string);
+    callback logout-requested;
+    callback manual-sync-requested;
+    callback test-connection-requested;
+    callback revoke-device-requested(string);
+    callback regenerate-device-identity-requested;
+    callback export-data-requested;
+    callback import-data-requested;
+    callback check-update-requested;
+    callback update-global-hotkey(string) -> string;
+    callback update-start-at-login(bool) -> string;
+    callback update-launch-minimized(bool) -> string;
+
+    in-out property <FeedbackKind> settings-feedback-kind: FeedbackKind.info;
+    in-out property <length> settings-scroll-y;
+    private property <bool> locate-pending: false;
+    private property <length> scroll-limit: max(0px, scroll.viewport-height - scroll.visible-height);
+    changed scroll-limit => {
+        // Layout can settle after an initial section request or a feedback resize.
+        if scroll.visible-height > 0px && scroll.viewport-height > 0px {
+            scroll.viewport-y = max(-root.scroll-limit, min(0px, scroll.viewport-y));
+        }
+    }
+    changed settings-page => { root.locate-pending = true; }
+    init => { if root.settings-page != 0 && root.settings-scroll-y == 0px { root.locate-pending = true; } }
+    Timer {
+        interval: 16ms;
+        running: root.locate-pending;
+        triggered => { root.locate-pending = false; root.locate-section(); }
+    }
+    function locate-section() {
+        let offsets = [general.y, translation.y, account.y, sync.y, devices.y, history.y, data.y, update.y];
+        if root.settings-page >= 0 && root.settings-page < offsets.length {
+            scroll.viewport-y = -min(offsets[root.settings-page], max(0px, scroll.viewport-height - scroll.visible-height));
+        }
+    }
+    padding: UiConstants.page_padding_medium;
+    spacing: UiConstants.space_16;
+    PageHeader { title: "Settings"; subtitle: "Desktop behavior, translation, synchronization, and data."; }
+    scroll := FluentScrollView {
+        vertical-stretch: 1;
+        horizontal-scrollbar-policy: always-off;
+        viewport-width: self.visible-width;
+        viewport-y <=> root.settings-scroll-y;
+        VerticalLayout {
+            width: scroll.visible-width;
+            spacing: UiConstants.space_24;
+            padding-right: UiConstants.space_4;
+            general := GeneralSettingsPage {
+                proxy-kind <=> root.proxy-kind;
+                proxy-address <=> root.proxy-address;
+                provider-proxy-enabled <=> root.provider-proxy-enabled;
+                update-proxy-enabled <=> root.update-proxy-enabled;
+                global-hotkey <=> root.global-hotkey;
+                start-at-login <=> root.start-at-login;
+                launch-minimized <=> root.launch-minimized;
+                persist-network-settings(address, kind, provider-proxy, update-proxy) => { return root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
+                update-global-hotkey(shortcut) => { return root.update-global-hotkey(shortcut); }
+                update-start-at-login(enabled) => { return root.update-start-at-login(enabled); }
+                update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
+                feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
+            }
+            translation := TranslationSettingsPage {
+                tokenhub-model <=> root.tokenhub-model;
+                provider-proxy-enabled <=> root.provider-proxy-enabled;
+                tokenhub-configured: root.tokenhub-configured;
+                validate-provider-settings(model, api-key) => { return root.validate-provider-settings(model, api-key); }
+                persist-provider-settings(model, api-key, use-proxy) => { root.persist-provider-settings(model, api-key, use-proxy); }
+                test-provider(model, api-key) => { root.test-provider(model, api-key); }
+                feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
+                section-visible: translation.y + translation.height + scroll.viewport-y > 0px && translation.y + scroll.viewport-y < scroll.visible-height;
+            }
+            account := AccountSettingsPage {
+                server-url: root.server-url;
+                username: root.username;
+                login-requested(server, username, password) => { root.login-requested(server, username, password); }
+                logout-requested() => { root.logout-requested(); }
+                regenerate-device-identity-requested() => { root.regenerate-device-identity-requested(); }
+                section-visible: account.y + account.height + scroll.viewport-y > 0px && account.y + scroll.viewport-y < scroll.visible-height;
+            }
+            sync := SyncSettingsPage {
+                server-url: root.server-url;
+                current-device: root.current-device;
+                sync-status: root.sync-status;
+                manual-sync-requested() => { root.manual-sync-requested(); }
+                test-connection-requested() => { root.test-connection-requested(); }
+            }
+            devices := DevicesSettingsPage {
+                devices: root.devices;
+                revoke-device-requested(device-id) => { root.revoke-device-requested(device-id); }
+            }
+            history := HistorySettingsPage {
+                clear-history-requested() => { root.clear-history-requested(); }
+            }
+            data := DataSettingsPage {
+                export-data-requested() => { root.export-data-requested(); }
+                import-data-requested() => { root.import-data-requested(); }
+            }
+            update := UpdateSettingsPage {
+                proxy-kind <=> root.proxy-kind;
+                proxy-address <=> root.proxy-address;
+                provider-proxy-enabled <=> root.provider-proxy-enabled;
+                update-proxy-enabled <=> root.update-proxy-enabled;
+                update-status: root.update-status;
+                persist-network-settings(address, kind, provider-proxy, update-proxy) => { return root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
+                check-update-requested() => { root.check-update-requested(); }
+                feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
+            }
+            Text { text: "LVOS 0.1.5"; color: Theme.text_tertiary; font-size: Typography.caption; }
+        }
+    }
+}

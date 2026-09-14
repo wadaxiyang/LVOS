@@ -1,0 +1,46 @@
+// Popup-only legacy controls; replaced with the popup in S5.
+
+export component SvgIconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> hint;
+    in property <color> icon-color: #475569;
+    callback activated;
+    width: 36px;
+    height: 34px;
+    border-radius: 5px;
+    background: svg-touch.pressed ? #d7e7f7 : svg-touch.has-hover ? #e8f1f8 : transparent;
+
+    Image {
+        width: 18px;
+        height: 18px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.icon-color;
+        image-fit: contain;
+    }
+    svg-touch := TouchArea {
+        accessible-role: button;
+        accessible-label: root.hint;
+        clicked => { root.activated(); }
+    }
+}
+
+export component IconSlot inherits Rectangle {
+    in property <image> icon;
+    in property <color> icon-color: #667085;
+    in property <length> icon-size: 18px;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+
+    Image {
+        width: root.icon-size;
+        height: root.icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.icon-color;
+        image-fit: contain;
+    }
+}

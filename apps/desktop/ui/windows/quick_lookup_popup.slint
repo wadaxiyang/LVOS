@@ -1,0 +1,205 @@
+import { Palette, ScrollView, Spinner } from "std-widgets.slint";
+import { SvgIconButton, IconSlot } from "../components/legacy_controls.slint";
+import { Theme, ThemeMode, Motion } from "@quadrant-kit";
+
+export component QuickLookupPopup inherits Window {
+    title: "LVOS Lookup Card";
+    icon: @image-url("../icons/logo.svg");
+    width: root.popup-width;
+    height: root.popup-height;
+    background: transparent;
+    always-on-top: true;
+    no-frame: true;
+    // Globals belong to this Window instance. Keep the existing light policy.
+    default-font-family: Theme.ui_font_family;
+    init => {
+        Theme.mode = ThemeMode.light;
+        Theme.system_dark = false;
+        Theme.ui_font_family = "";
+        Motion.animations_enabled = true;
+        Motion.reduced_motion = false;
+        Palette.color-scheme = ColorScheme.light;
+    }
+
+    in property <string> source-text;
+    in property <string> translated-text;
+    in property <string> error-title;
+    in property <string> error-detail;
+    in property <int> effective-count;
+    in property <bool> favorite;
+    in property <bool> loading;
+    in property <bool> text-mode;
+    in property <bool> error-visible;
+    in property <length> popup-width: 360px;
+    in property <length> popup-height: 180px;
+    callback favorite-toggled;
+    callback refresh-requested;
+    callback interaction-started;
+    callback dismiss-requested;
+
+    card := Rectangle {
+        border-radius: 8px;
+        background: #ffffff;
+        border-width: 1px;
+        border-color: #d9d9d9;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #26000000;
+        drop-shadow-offset-y: 4px;
+
+        TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) { root.interaction-started(); }
+            }
+        }
+
+        FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.dismiss-requested();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 0px;
+
+            Rectangle {
+                height: 52px;
+                background: transparent;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    IconSlot {
+                        width: 24px;
+                        height: 50px;
+                        icon: @image-url("../icons/translate.svg");
+                        icon-size: 18px;
+                        icon-color: #0067c0;
+                    }
+                    VerticalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 7px;
+                        spacing: 1px;
+                        Text {
+                            text: root.source-text;
+                            color: #202020;
+                            font-size: 15px;
+                            font-weight: 600;
+                            wrap: no-wrap;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "QUICK LOOKUP";
+                            color: #707070;
+                            font-size: 9px;
+                            letter-spacing: 0.7px;
+                        }
+                    }
+                    SvgIconButton {
+                        width: 36px;
+                        height: 50px;
+                        icon: root.favorite ? @image-url("../icons/star-filled.svg") : @image-url("../icons/star.svg");
+                        icon-color: root.favorite ? #d97706 : #667085;
+                        hint: root.favorite ? "Remove from Favorites" : "Add to Favorites";
+                        activated => { root.interaction-started(); root.favorite-toggled(); }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ececec; }
+
+            Rectangle {
+                vertical-stretch: 1;
+                background: #ffffff;
+
+                if root.loading: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 10px;
+                    Spinner { width: 22px; height: 100%; }
+                    Text { text: "Translating…"; color: #5f5f5f; vertical-alignment: center; }
+                }
+
+                if !root.loading && !root.error-visible: ScrollView {
+                    x: 16px;
+                    y: 13px;
+                    width: parent.width - 32px;
+                    height: parent.height - 24px;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+                    VerticalLayout {
+                        width: parent.width;
+                        Text {
+                            text: root.translated-text;
+                            color: #323130;
+                            width: parent.width;
+                            font-size: 15px;
+                            wrap: word-wrap;
+                            overflow: clip;
+                        }
+                    }
+                }
+
+                if root.error-visible: Rectangle {
+                    x: 14px;
+                    y: 10px;
+                    width: parent.width - 28px;
+                    height: parent.height - 18px;
+                    background: #fff4f4;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #f1c7c7;
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 8px;
+                        padding-bottom: 7px;
+                        spacing: 3px;
+                        Text { text: root.error-title; color: #a4262c; font-size: 12px; font-weight: 600; }
+                        Text { text: root.error-detail; color: #6e2c2c; font-size: 11px; overflow: elide; }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ececec; }
+
+            Rectangle {
+                height: 41px;
+                background: #fafafa;
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 8px;
+                        alignment: space-between;
+                        if root.effective-count > 1: HorizontalLayout {
+                            spacing: 6px;
+                            IconSlot {
+                                width: 16px;
+                                height: 39px;
+                                icon: @image-url("../icons/history.svg");
+                                icon-size: 14px;
+                                icon-color: #777777;
+                            }
+                            Text {
+                                text: root.effective-count + " lookups";
+                                color: #707070;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                        }
+                        SvgIconButton {
+                            width: 36px;
+                            height: 39px;
+                            icon: @image-url("../icons/refresh.svg");
+                            icon-color: #0067c0;
+                            hint: "Refresh translation";
+                            activated => { root.interaction-started(); root.refresh-requested(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

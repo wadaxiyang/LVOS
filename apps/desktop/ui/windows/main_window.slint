@@ -1,0 +1,167 @@
+import { Palette } from "std-widgets.slint";
+import { Theme, ThemeMode, Motion, NavigationView, NavigationPaneMode, FluentInfoBar, InfoBarKind, FluentScrollView, Typography, UiConstants } from "@quadrant-kit";
+import { UiRecord, DeviceRecord, FeedbackKind } from "../model/ui_types.slint";
+import { LvosNavigation } from "../product/navigation.slint";
+import { HistoryPage } from "../pages/history_page.slint";
+import { FavoritesPage } from "../pages/favorites_page.slint";
+import { SettingsPage } from "../pages/settings_page.slint";
+
+export component MainWindow inherits Window {
+    title: "LVOS";
+    icon: @image-url("../icons/logo.svg");
+    preferred-width: 960px;
+    preferred-height: 640px;
+    min-width: 760px;
+    min-height: 540px;
+    background: Theme.background;
+    // Globals belong to this Window instance. Keep the existing light policy.
+    default-font-family: Theme.ui_font_family;
+    init => {
+        Theme.mode = ThemeMode.light;
+        Theme.system_dark = false;
+        Theme.ui_font_family = "";
+        Motion.animations_enabled = true;
+        Motion.reduced_motion = false;
+        Palette.color-scheme = ColorScheme.light;
+    }
+
+    in-out property <int> active-page: 0;
+    // Compatibility: an index requests a section in the single Settings scroll view.
+    in-out property <int> settings-page: 0;
+    in-out property <length> settings-scroll-y;
+    in-out property <FeedbackKind> settings-feedback-kind: FeedbackKind.info;
+    in-out property <bool> sidebar-collapsed: false;
+    in-out property <string> search-text;
+    in property <[UiRecord]> history-records;
+    in property <[UiRecord]> favorite-records;
+    in property <[DeviceRecord]> devices;
+    in-out property <string> tokenhub-model: "hy-mt2-lite";
+    in-out property <int> proxy-kind: 0;
+    in-out property <string> proxy-address;
+    in-out property <bool> provider-proxy-enabled: false;
+    in-out property <bool> update-proxy-enabled: false;
+    in property <string> server-url: "https://lvos.niuniu770.site";
+    in property <string> username;
+    in property <string> current-device;
+    in property <string> sync-status: "Login required";
+    in property <string> update-status: "No update check performed";
+    in-out property <string> settings-error;
+    in property <bool> tokenhub-configured;
+    in-out property <string> global-hotkey: "⌥D";
+    in-out property <bool> start-at-login;
+    in-out property <bool> launch-minimized;
+
+    callback history-search(string);
+    callback favorites-search(string);
+    callback favorite-toggled(string, bool);
+    callback clear-history-requested;
+    callback validate-provider-settings(string, string) -> string;
+    callback persist-provider-settings(string, string, bool);
+    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback test-provider(string, string);
+    callback login-requested(string, string, string);
+    callback logout-requested;
+    callback manual-sync-requested;
+    callback test-connection-requested;
+    callback revoke-device-requested(string);
+    callback regenerate-device-identity-requested;
+    callback export-data-requested;
+    callback import-data-requested;
+    callback check-update-requested;
+    callback update-global-hotkey(string) -> string;
+    callback update-start-at-login(bool) -> string;
+    callback update-launch-minimized(bool) -> string;
+
+    NavigationView {
+        pane_title: "LVOS";
+        pane_width: 200px;
+        items: LvosNavigation.main-items;
+        footer_items: LvosNavigation.footer-items;
+        selected_id: LvosNavigation.main-id(root.active-page);
+        pane_mode: root.sidebar-collapsed ? NavigationPaneMode.compact : NavigationPaneMode.expanded;
+        pane_toggle_requested => { root.sidebar-collapsed = !root.sidebar-collapsed; }
+        item_invoked(id) => {
+            let page = LvosNavigation.main-index(id);
+            if page >= 0 { root.active-page = page; }
+        }
+        VerticalLayout {
+            if root.settings-error != "": VerticalLayout {
+                padding-left: UiConstants.space_20;
+                padding-right: UiConstants.space_20;
+                padding-top: UiConstants.space_12;
+                spacing: UiConstants.space_8;
+                FluentInfoBar {
+                    message: root.settings-feedback-kind == FeedbackKind.error ? "Action needs attention" : root.settings-feedback-kind == FeedbackKind.success ? "Operation completed" : "Status update";
+                    kind: root.settings-feedback-kind == FeedbackKind.error ? InfoBarKind.error : root.settings-feedback-kind == FeedbackKind.success ? InfoBarKind.success : InfoBarKind.info;
+                    dismissed => { root.settings-error = ""; }
+                }
+                // Keep full host details readable without relying on Kit 0.1.1
+                // InfoBar's wrapped-message height. Both regions dismiss together.
+                feedback-scroll := FluentScrollView {
+                    height: min(96px, feedback-detail.preferred-height);
+                    horizontal-scrollbar-policy: always-off;
+                    viewport-width: self.visible-width;
+                    viewport-height: feedback-detail.preferred-height;
+                    feedback-detail := Text {
+                        width: feedback-scroll.visible-width;
+                        text: root.settings-error;
+                        color: Theme.text_primary;
+                        font-size: Typography.body;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+            if root.active-page == 0: HistoryPage {
+                search-text <=> root.search-text;
+                history-records: root.history-records;
+                history-search(value) => { root.history-search(value); }
+                favorite-toggled(key, currently-favorite) => { root.favorite-toggled(key, currently-favorite); }
+                clear-history-requested() => { root.clear-history-requested(); }
+            }
+            if root.active-page == 1: FavoritesPage {
+                search-text <=> root.search-text;
+                favorite-records: root.favorite-records;
+                favorites-search(value) => { root.favorites-search(value); }
+                favorite-toggled(key, currently-favorite) => { root.favorite-toggled(key, currently-favorite); }
+            }
+            if root.active-page == 2: SettingsPage {
+                settings-page <=> root.settings-page;
+                settings-scroll-y <=> root.settings-scroll-y;
+                settings-feedback-kind <=> root.settings-feedback-kind;
+                devices: root.devices;
+                tokenhub-model <=> root.tokenhub-model;
+                proxy-kind <=> root.proxy-kind;
+                proxy-address <=> root.proxy-address;
+                provider-proxy-enabled <=> root.provider-proxy-enabled;
+                update-proxy-enabled <=> root.update-proxy-enabled;
+                server-url: root.server-url;
+                username: root.username;
+                current-device: root.current-device;
+                sync-status: root.sync-status;
+                update-status: root.update-status;
+                settings-error <=> root.settings-error;
+                tokenhub-configured: root.tokenhub-configured;
+                global-hotkey <=> root.global-hotkey;
+                start-at-login <=> root.start-at-login;
+                launch-minimized <=> root.launch-minimized;
+                clear-history-requested() => { root.clear-history-requested(); }
+                validate-provider-settings(model, api-key) => { return root.validate-provider-settings(model, api-key); }
+                persist-provider-settings(model, api-key, use-proxy) => { root.persist-provider-settings(model, api-key, use-proxy); }
+                persist-network-settings(address, kind, provider-proxy, update-proxy) => { return root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
+                test-provider(model, api-key) => { root.test-provider(model, api-key); }
+                login-requested(server, username, password) => { root.login-requested(server, username, password); }
+                logout-requested() => { root.logout-requested(); }
+                manual-sync-requested() => { root.manual-sync-requested(); }
+                test-connection-requested() => { root.test-connection-requested(); }
+                revoke-device-requested(device-id) => { root.revoke-device-requested(device-id); }
+                regenerate-device-identity-requested() => { root.regenerate-device-identity-requested(); }
+                export-data-requested() => { root.export-data-requested(); }
+                import-data-requested() => { root.import-data-requested(); }
+                check-update-requested() => { root.check-update-requested(); }
+                update-global-hotkey(shortcut) => { return root.update-global-hotkey(shortcut); }
+                update-start-at-login(enabled) => { return root.update-start-at-login(enabled); }
+                update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
+            }
+        }
+    }
+}

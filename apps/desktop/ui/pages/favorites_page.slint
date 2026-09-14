@@ -1,0 +1,31 @@
+import { PageHeader, FluentTextField, FluentScrollView, EmptyState, Badge, BadgeKind, UiConstants } from "@quadrant-kit";
+import { UiRecord } from "../model/ui_types.slint";
+import { RecordCard } from "../components/record_card.slint";
+export component FavoritesPage inherits VerticalLayout {
+    in-out property <string> search-text;
+    in property <[UiRecord]> favorite-records;
+    callback favorites-search(string);
+    callback favorite-toggled(string, bool);
+    padding: UiConstants.page_padding_medium;
+    spacing: UiConstants.space_16;
+    PageHeader { title: "Favorites"; subtitle: "Keep useful words and phrases close at hand."; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: UiConstants.space_12;
+        FluentTextField { horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search favorites"; edited(value) => { root.favorites-search(value); } }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Badge { text: root.favorite-records.length + " saved"; kind: BadgeKind.neutral; }
+    }
+    FluentScrollView {
+        vertical-stretch: 1;
+        horizontal-scrollbar-policy: always-off;
+        viewport-width: self.visible-width;
+        VerticalLayout {
+            spacing: UiConstants.space_12;
+            for item in root.favorite-records: RecordCard { item: item; favorite-toggled(key) => { root.favorite-toggled(key, true); } }
+            if root.favorite-records.length == 0: EmptyState { title: "Nothing saved yet"; message: "Use the star action on a lookup to keep it here."; icon: @image-url("../icons/star.svg"); }
+        }
+    }
+}

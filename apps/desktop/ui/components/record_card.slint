@@ -1,0 +1,25 @@
+import { SurfaceCard, FluentIcon, IconButton, Theme, Typography, UiConstants } from "@quadrant-kit";
+import { UiRecord } from "../model/ui_types.slint";
+export component RecordCard inherits SurfaceCard {
+    in property <UiRecord> item;
+    callback favorite-toggled(string);
+    vertical-stretch: 0;
+    HorizontalLayout {
+        padding: UiConstants.space_16;
+        spacing: UiConstants.space_16;
+        FluentIcon { source: @image-url("../icons/translate.svg"); size: 24px; icon_color: Theme.accent; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: UiConstants.space_4;
+            Text { text: root.item.source; color: Theme.text_primary; font-size: Typography.body; font-weight: Typography.semibold; wrap: word-wrap; }
+            Text { text: root.item.translation; color: Theme.text_secondary; font-size: Typography.body; wrap: word-wrap; }
+            Text { text: (root.item.count > 1 ? root.item.count + " lookups" : "1 lookup") + (root.item.metadata != "" ? " · " + root.item.metadata : ""); color: Theme.text_tertiary; font-size: Typography.caption; wrap: word-wrap; }
+        }
+        IconButton {
+            icon: root.item.favorite ? @image-url("../icons/star-filled.svg") : @image-url("../icons/star.svg");
+            tooltip: root.item.favorite ? "Remove from Favorites" : "Add to Favorites";
+            accessible_name: (root.item.favorite ? "Remove favorite: " : "Add favorite: ") + root.item.source;
+            clicked => { root.favorite-toggled(root.item.key); }
+        }
+    }
+}

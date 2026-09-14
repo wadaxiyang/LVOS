@@ -1,0 +1,50 @@
+import { Button, Palette } from "std-widgets.slint";
+import { Theme, ThemeMode, Motion } from "@quadrant-kit";
+
+export component PermissionWindow inherits Window {
+    title: "LVOS Permissions";
+    icon: @image-url("../icons/logo.svg");
+    width: 520px;
+    height: 300px;
+    background: #f8f9fc;
+    // Globals belong to this Window instance. Keep the existing light policy.
+    default-font-family: Theme.ui_font_family;
+    init => {
+        Theme.mode = ThemeMode.light;
+        Theme.system_dark = false;
+        Theme.ui_font_family = "";
+        Motion.animations_enabled = true;
+        Motion.reduced_motion = false;
+        Palette.color-scheme = ColorScheme.light;
+    }
+
+    in-out property <string> status-text: "Accessibility permission is required.";
+    callback open-settings;
+    callback check-again;
+    callback restart-requested;
+
+    VerticalLayout {
+        padding: 32px;
+        spacing: 18px;
+        Text { text: "Allow LVOS to capture selected text"; color: #111827; font-size: 23px; font-weight: 700; }
+        Text {
+            text: "macOS requires Accessibility permission before LVOS can send Cmd+C. LVOS only sends it after you press the configured global hotkey.";
+            color: #4b5563;
+            font-size: 14px;
+            wrap: word-wrap;
+        }
+        Rectangle {
+            height: 54px;
+            border-radius: 9px;
+            background: #fff7ed;
+            Text { x: 14px; width: parent.width - 28px; text: root.status-text; color: #9a3412; vertical-alignment: center; wrap: word-wrap; }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 10px;
+            Button { text: "Open Accessibility Settings"; clicked => { root.open-settings(); } }
+            Button { text: "Check Again"; clicked => { root.check-again(); } }
+            Button { text: "Restart LVOS"; clicked => { root.restart-requested(); } }
+        }
+    }
+}

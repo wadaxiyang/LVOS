@@ -21,7 +21,9 @@ mod generated {
     slint::include_modules!();
 }
 
-pub use generated::{DeviceRecord, MainWindow, PermissionWindow, QuickLookupPopup, UiRecord};
+pub use generated::{
+    DeviceRecord, FeedbackKind, MainWindow, PermissionWindow, QuickLookupPopup, UiRecord,
+};
 
 #[cfg(target_os = "macos")]
 thread_local! {

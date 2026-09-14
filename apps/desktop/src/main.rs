@@ -287,6 +287,7 @@ fn install_local_ui_callbacks(
                     {
                         main.set_tokenhub_model(tokenhub_model.into());
                         main.set_tokenhub_configured(tokenhub);
+                        main.set_settings_feedback_kind(lvos::FeedbackKind::Success);
                         main.set_settings_error("Provider settings saved.".into());
                     } else if let Err(error) = network_result {
                         set_settings_error(&main, error.to_string());
@@ -314,6 +315,7 @@ fn install_local_ui_callbacks(
             match network_application.save_network_preferences(preferences) {
                 Ok(()) => {
                     if let Some(main) = main.upgrade() {
+                        main.set_settings_feedback_kind(lvos::FeedbackKind::Success);
                         main.set_settings_error("Network settings saved.".into());
                     }
                     "".into()
@@ -333,14 +335,20 @@ fn install_local_ui_callbacks(
             let tokenhub_model = tokenhub_model.to_string();
             let tokenhub_key = tokenhub_key.to_string();
             test_handle.spawn(async move {
-                let message = match application
+                let (message, kind) = match application
                     .test_provider(&tokenhub_model, &tokenhub_key)
                     .await
                 {
-                    Ok(()) => "Provider test succeeded.".to_owned(),
-                    Err(error) => format!("Provider test failed: {error}"),
+                    Ok(()) => (
+                        "Provider test succeeded.".to_owned(),
+                        lvos::FeedbackKind::Success,
+                    ),
+                    Err(error) => (
+                        format!("Provider test failed: {error}"),
+                        lvos::FeedbackKind::Error,
+                    ),
                 };
-                set_settings_error(&main, message);
+                set_settings_feedback(&main, message, kind);
             });
         });
 
@@ -432,11 +440,17 @@ fn install_local_ui_callbacks(
         let main = main.clone();
         let application = Arc::clone(&connection_application);
         connection_handle.spawn(async move {
-            let status = match application.test_connection(&origin).await {
-                Ok(()) => "Server compatibility check succeeded.".to_owned(),
-                Err(error) => format!("Server check failed: {error}"),
+            let (status, kind) = match application.test_connection(&origin).await {
+                Ok(()) => (
+                    "Server compatibility check succeeded.".to_owned(),
+                    lvos::FeedbackKind::Success,
+                ),
+                Err(error) => (
+                    format!("Server check failed: {error}"),
+                    lvos::FeedbackKind::Error,
+                ),
             };
-            set_settings_error(&main, status);
+            set_settings_feedback(&main, status, kind);
         });
     });
 
@@ -523,7 +537,11 @@ fn install_local_ui_callbacks(
             };
             let path = file.path().to_path_buf();
             match tokio::task::spawn_blocking(move || std::fs::write(path, bytes)).await {
-                Ok(Ok(())) => set_settings_error(&main, "Export completed.".to_owned()),
+                Ok(Ok(())) => set_settings_feedback(
+                    &main,
+                    "Export completed.".to_owned(),
+                    lvos::FeedbackKind::Success,
+                ),
                 Ok(Err(error)) => set_settings_error(&main, format!("Export failed: {error}")),
                 Err(error) => set_settings_error(&main, format!("Export task failed: {error}")),
             }
@@ -589,18 +607,19 @@ fn install_local_ui_callbacks(
                 .show()
                 .await;
             if confirmed != rfd::MessageDialogResult::Yes {
-                set_settings_error(&main, "Import cancelled; no data changed.".to_owned());
+                set_settings_feedback(&main, "Import cancelled; no data changed.".to_owned(), lvos::FeedbackKind::Info);
                 return;
             }
             match application.apply_portable_import(plan).await {
                 Ok(result) => {
-                    set_settings_error(
+                    set_settings_feedback(
                         &main,
                         format!(
                             "Import completed: {} History added, {} Favorites added/reactivated.",
                             result.history_add,
                             result.favorite_add.saturating_add(result.favorite_reactivate),
                         ),
+                        lvos::FeedbackKind::Success,
                     );
                     refresh_history(
                         main.clone(),
@@ -807,9 +826,19 @@ fn apply_account_state(
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn set_settings_error(main: &slint::Weak<lvos::MainWindow>, message: String) {
+    set_settings_feedback(main, message, lvos::FeedbackKind::Error);
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn set_settings_feedback(
+    main: &slint::Weak<lvos::MainWindow>,
+    message: String,
+    kind: lvos::FeedbackKind,
+) {
     let main = main.clone();
     if let Err(error) = slint::invoke_from_event_loop(move || {
         if let Some(main) = main.upgrade() {
+            main.set_settings_feedback_kind(kind);
             main.set_settings_error(message.into());
         }
     }) {
@@ -1104,16 +1133,22 @@ fn install_windows_runtime(
     // The Win32 registration owns a hidden HWND and must remain on the Slint UI thread.
     let hotkey = Rc::new(RefCell::new(hotkey));
     let settings_hotkey = Rc::clone(&hotkey);
+    let hotkey_window = ui.main_window().as_weak();
     ui.main_window().on_update_global_hotkey(move |display| {
         if lvos_platform::windows::parse_hotkey_display(display.as_str()).is_err() {
             return "Use a modifier and one letter, for example Alt+D.".into();
         }
         let mut hotkey = settings_hotkey.borrow_mut();
         match hotkey.update(display.as_str()) {
-            Ok(()) => match save_platform_hotkey(display.as_str()) {
-                Ok(()) => "".into(),
-                Err(_) => "The hotkey changed but its preference could not be saved.".into(),
-            },
+            Ok(()) => {
+                if let Some(main) = hotkey_window.upgrade() {
+                    main.set_global_hotkey(display.clone());
+                }
+                match save_platform_hotkey(display.as_str()) {
+                    Ok(()) => "".into(),
+                    Err(_) => "The hotkey changed but its preference could not be saved.".into(),
+                }
+            }
             Err(lvos_platform::PlatformError::Conflict) => {
                 "That shortcut is already in use. The previous hotkey remains active.".into()
             }
@@ -1265,6 +1300,7 @@ fn install_macos_runtime(
     }));
     let hotkey = Arc::new(Mutex::new(hotkey));
     let settings_hotkey = Arc::clone(&hotkey);
+    let hotkey_window = ui.main_window().as_weak();
     ui.main_window().on_update_global_hotkey(move |display| {
         let Ok(registration) = lvos_platform::macos::parse_hotkey_display(display.as_str()) else {
             return "Use a modifier and one letter, for example ⌥D.".into();
@@ -1273,10 +1309,15 @@ fn install_macos_runtime(
             return "The global hotkey service is unavailable.".into();
         };
         match hotkey.update(&registration) {
-            Ok(()) => match save_platform_hotkey(display.as_str()) {
-                Ok(()) => "".into(),
-                Err(_) => "The hotkey changed but its preference could not be saved.".into(),
-            },
+            Ok(()) => {
+                if let Some(main) = hotkey_window.upgrade() {
+                    main.set_global_hotkey(display.clone());
+                }
+                match save_platform_hotkey(display.as_str()) {
+                    Ok(()) => "".into(),
+                    Err(_) => "The hotkey changed but its preference could not be saved.".into(),
+                }
+            }
             Err(lvos_platform::PlatformError::Conflict) => {
                 "That shortcut is already in use. The previous hotkey remains active.".into()
             }

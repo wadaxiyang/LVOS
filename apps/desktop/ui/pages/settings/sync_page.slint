@@ -1,0 +1,28 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, UiConstants } from "@quadrant-kit";
+
+export component SyncSettingsPage inherits VerticalLayout {
+    in property <string> server-url: "https://lvos.niuniu770.site";
+    in property <string> current-device;
+    in property <string> sync-status: "Login required";
+
+    callback manual-sync-requested;
+    callback test-connection-requested;
+
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "Sync"; description: "Inspect the current profile and request synchronization."; }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            SettingRow { title: "Status"; description: root.sync-status; }
+            SettingRow { title: "Server"; description: root.server-url; }
+            SettingRow { title: "Current device"; description: root.current-device == "" ? "No device connected" : root.current-device; }
+            HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
+                FluentButton { text: "Test connection"; clicked => { root.test-connection-requested(); } }
+                FluentButton { text: "Sync now"; primary: true; clicked => { root.manual-sync-requested(); } }
+            }
+        }
+    }
+}

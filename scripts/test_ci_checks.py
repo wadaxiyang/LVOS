@@ -16,6 +16,7 @@ from scripts.check_release_tag import check_release_tag
 from scripts.generate_update_manifest import MAX_ARTIFACT_BYTES, build_manifest
 from scripts.generate_release_checksums import write_checksums
 from scripts.verify_release_candidate import verify_candidate
+from scripts.check_stage14_security import REQUIRED_CALLBACKS, ui_contract_failures
 
 from scripts.check_workspace import (
     EXPECTED_PACKAGES,
@@ -23,6 +24,31 @@ from scripts.check_workspace import (
     parse_environment_example,
     parse_metadata,
 )
+
+
+class UiContractCheckTests(unittest.TestCase):
+    ENTRY = 'export { MainWindow } from "windows/main_window.slint";'
+
+    def window(self, callbacks: set[str]) -> str:
+        return "export component MainWindow inherits Window {\n" + "\n".join(
+            f"    callback {name};" for name in sorted(callbacks)
+        ) + "\n}"
+
+    def test_accepts_exported_window_contract(self) -> None:
+        self.assertEqual(ui_contract_failures(self.ENTRY, self.window(REQUIRED_CALLBACKS)), [])
+
+    def test_child_callback_cannot_replace_window_callback(self) -> None:
+        entry_with_child = self.ENTRY + "\ncomponent Child {\n callback login-requested;\n}"
+        failures = ui_contract_failures(
+            entry_with_child, self.window(REQUIRED_CALLBACKS - {"login-requested"})
+        )
+        self.assertEqual(failures, ["missing required UI callbacks: ['login-requested']"])
+
+    def test_rejects_disconnected_window(self) -> None:
+        failures = ui_contract_failures(
+            'export { MainWindow } from "other.slint";', self.window(REQUIRED_CALLBACKS)
+        )
+        self.assertEqual(failures, ["app.slint does not export the audited MainWindow"])
 
 
 class WorkspaceCheckTests(unittest.TestCase):

@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DESKTOP_MAIN = ROOT / "apps" / "desktop" / "src" / "main.rs"
 DESKTOP_UI = ROOT / "apps" / "desktop" / "ui" / "app.slint"
+MAIN_WINDOW_UI = DESKTOP_UI.parent / "windows" / "main_window.slint"
 
 REQUIRED_CALLBACKS = {
     "history-search",
@@ -48,14 +49,29 @@ def production_rust_files() -> list[Path]:
     )
 
 
-def main() -> int:
+def ui_contract_failures(entry_source: str, window_source: str) -> list[str]:
     failures: list[str] = []
-    ui = DESKTOP_UI.read_text(encoding="utf-8")
-    main_source = DESKTOP_MAIN.read_text(encoding="utf-8")
-    callbacks = set(re.findall(r"^\s*callback\s+([a-z0-9-]+)", ui, re.MULTILINE))
+    if not re.search(
+        r'export\s*\{\s*MainWindow\s*\}\s*from\s*"windows/main_window\.slint"\s*;',
+        entry_source,
+    ):
+        failures.append("app.slint does not export the audited MainWindow")
+    if not re.search(r"export\s+component\s+MainWindow\s+inherits\s+Window\s*\{", window_source):
+        failures.append("audited UI file does not declare MainWindow")
+    # Do not union callbacks from child pages: those cannot replace the host API.
+    callbacks = set(re.findall(r"^\s*callback\s+([a-z0-9-]+)", window_source, re.MULTILINE))
     missing_declarations = sorted(REQUIRED_CALLBACKS - callbacks)
     if missing_declarations:
         failures.append(f"missing required UI callbacks: {missing_declarations}")
+    return failures
+
+
+def main() -> int:
+    failures = ui_contract_failures(
+        DESKTOP_UI.read_text(encoding="utf-8"),
+        MAIN_WINDOW_UI.read_text(encoding="utf-8"),
+    )
+    main_source = DESKTOP_MAIN.read_text(encoding="utf-8")
     missing_handlers = sorted(
         callback
         for callback in REQUIRED_CALLBACKS

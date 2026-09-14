@@ -1,0 +1,19 @@
+export struct UiRecord {
+    key: string,
+    source: string,
+    translation: string,
+    count: int,
+    favorite: bool,
+    metadata: string,
+}
+
+export struct DeviceRecord {
+    id: string,
+    name: string,
+    platform: string,
+    last-seen: string,
+    current: bool,
+    revoked: bool,
+}
+
+export enum FeedbackKind { info, success, error }

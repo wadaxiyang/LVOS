@@ -3050,6 +3050,7 @@ dependencies = [
  "lvos-translation",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+ "quadrant-kit",
  "raw-window-handle",
  "reqwest",
  "rfd",
@@ -4329,6 +4330,11 @@ checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "quadrant-kit"
+version = "0.1.1"
+source = "git+https://github.com/wadaxiyang/Quadrant-Kit.git?rev=20cc9d77b737d1326d4320a42f7d26f9a799298f#20cc9d77b737d1326d4320a42f7d26f9a799298f"
 
 [[package]]
 name = "quick-error"

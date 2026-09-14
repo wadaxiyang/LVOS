@@ -1,0 +1,33 @@
+import { PageHeader, FluentTextField, FluentButton, FluentScrollView, EmptyState, Badge, BadgeKind, FluentIcons, UiConstants } from "@quadrant-kit";
+import { UiRecord } from "../model/ui_types.slint";
+import { RecordCard } from "../components/record_card.slint";
+export component HistoryPage inherits VerticalLayout {
+    in-out property <string> search-text;
+    in property <[UiRecord]> history-records;
+    callback history-search(string);
+    callback favorite-toggled(string, bool);
+    callback clear-history-requested;
+    padding: UiConstants.page_padding_medium;
+    spacing: UiConstants.space_16;
+    PageHeader { title: "History"; subtitle: "Your private lookup timeline, stored only on this device."; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: UiConstants.space_12;
+        FluentTextField { horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search history"; edited(value) => { root.history-search(value); } }
+        FluentButton { text: "Clear history"; icon: FluentIcons.delete; danger: true; clicked => { root.clear-history-requested(); } }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Badge { horizontal-stretch: 0; text: root.history-records.length == 1 ? "1 entry" : root.history-records.length + " entries"; kind: BadgeKind.neutral; }
+    }
+    FluentScrollView {
+        vertical-stretch: 1;
+        horizontal-scrollbar-policy: always-off;
+        viewport-width: self.visible-width;
+        VerticalLayout {
+            spacing: UiConstants.space_12;
+            for item in root.history-records: RecordCard { item: item; favorite-toggled(key) => { root.favorite-toggled(key, item.favorite); } }
+            if root.history-records.length == 0: EmptyState { title: "No lookups yet"; message: "Select text and press your global shortcut to begin."; icon: @image-url("../icons/history.svg"); }
+        }
+    }
+}

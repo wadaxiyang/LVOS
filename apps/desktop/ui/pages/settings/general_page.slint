@@ -1,0 +1,76 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, FluentSwitch, FluentComboBox, UiConstants } from "@quadrant-kit";
+import { FeedbackKind } from "../../model/ui_types.slint";
+
+export component GeneralSettingsPage inherits VerticalLayout {
+    in-out property <int> proxy-kind: 0;
+    in-out property <string> proxy-address;
+    in-out property <bool> provider-proxy-enabled: false;
+    in-out property <bool> update-proxy-enabled: false;
+    in-out property <string> global-hotkey: "⌥D";
+    in-out property <bool> start-at-login;
+    in-out property <bool> launch-minimized;
+
+    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback update-global-hotkey(string) -> string;
+    callback update-start-at-login(bool) -> string;
+    callback update-launch-minimized(bool) -> string;
+
+    callback feedback(string, FeedbackKind);
+    changed global-hotkey => { hotkey.text = root.global-hotkey; }
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "General"; description: "Desktop behavior and network defaults."; }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            SettingRow { title: "Global shortcut"; description: "Use this shortcut after selecting text in another app."; }
+            HorizontalLayout {
+                spacing: UiConstants.space_12;
+                hotkey := FluentTextField { horizontal-stretch: 1; text: root.global-hotkey; accessible-role: groupbox; accessible-label: "Global shortcut"; }
+                FluentButton { text: "Save shortcut"; clicked => {
+                    let draft = hotkey.text;
+                    let error = root.update-global-hotkey(draft);
+                    if error == "" { root.global-hotkey = draft; }
+                    // The host also reports a changed registration when saving its preference fails.
+                    hotkey.text = root.global-hotkey;
+                    let success = error == ""; root.feedback(success ? "Shortcut saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                } }
+            }
+            SettingRow {
+                title: "Start at login"; description: "Open LVOS when you sign in to this computer.";
+                FluentSwitch { checked <=> root.start-at-login; accessible-label: "Start at login"; toggled => {
+                    let error = root.update-start-at-login(self.checked);
+                    if error != "" { self.checked = !self.checked; }
+                    let success = error == ""; root.feedback(success ? "Startup preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                } }
+            }
+            SettingRow {
+                title: "Launch minimized"; description: "Keep LVOS in the system tray on startup.";
+                FluentSwitch { checked <=> root.launch-minimized; accessible-label: "Launch minimized"; toggled => {
+                    let error = root.update-launch-minimized(self.checked);
+                    if error != "" { self.checked = !self.checked; }
+                    let success = error == ""; root.feedback(success ? "Launch preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                } }
+            }
+        }
+    }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            SettingRow {
+                title: "Network proxy"; description: "Translation and update checks opt in separately below.";
+                proxy-type := FluentComboBox { width: 120px; model: ["HTTP", "SOCKS5"]; current-index <=> root.proxy-kind; accessible-label: "Proxy type"; }
+            }
+            proxy-address := FluentTextField { text <=> root.proxy-address; placeholder_text: "127.0.0.1:7890"; accessible-role: groupbox; accessible-label: "Proxy address"; }
+            HorizontalLayout { alignment: end;
+                FluentButton { text: "Save network"; clicked => {
+                    let error = root.persist-network-settings(proxy-address.text, proxy-type.current-index, root.provider-proxy-enabled, root.update-proxy-enabled);
+                    let success = error == ""; root.feedback(success ? "Network settings saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                } }
+            }
+        }
+    }
+}

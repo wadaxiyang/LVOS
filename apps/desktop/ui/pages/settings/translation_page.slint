@@ -1,0 +1,45 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentTextField, FluentSwitch, BadgeKind, Theme, Typography, UiConstants } from "@quadrant-kit";
+import { FeedbackKind } from "../../model/ui_types.slint";
+import { LineEdit } from "std-widgets.slint"; // S4: the two remaining credential fields.
+
+export component TranslationSettingsPage inherits VerticalLayout {
+    in-out property <string> tokenhub-model: "hy-mt2-lite";
+    in-out property <bool> provider-proxy-enabled: false;
+    in property <bool> tokenhub-configured;
+
+    callback validate-provider-settings(string, string) -> string;
+    callback persist-provider-settings(string, string, bool);
+    callback test-provider(string, string);
+
+    callback feedback(string, FeedbackKind);
+    in property <bool> section-visible;
+    changed section-visible => { if !root.section-visible { tokenhub-key.text = ""; } }
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "Translation"; description: "Tencent TokenHub model and your private credential.";
+        badge_text: root.tokenhub-configured ? "Configured" : "Setup required";
+        badge_kind: root.tokenhub-configured ? BadgeKind.success : BadgeKind.neutral;
+    }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            Text { text: "Model"; color: Theme.text_primary; font-size: Typography.body; }
+            tokenhub-model := FluentTextField { text <=> root.tokenhub-model; placeholder_text: "hy-mt2-lite"; accessible-role: groupbox; accessible-label: "TokenHub model"; }
+            Text { text: "API key"; color: Theme.text_primary; font-size: Typography.body; }
+            tokenhub-key := LineEdit { placeholder-text: "Stored securely in Windows Credential Manager"; input-type: InputType.password; accessible-label: "TokenHub API key"; }
+            SettingRow { title: "Provider proxy"; description: "Use the proxy configured in General for translation requests.";
+                provider-proxy := FluentSwitch { checked <=> root.provider-proxy-enabled; accessible-label: "Provider proxy"; }
+            }
+            HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
+                FluentButton { text: "Test connection"; clicked => { root.test-provider(tokenhub-model.text, tokenhub-key.text); } }
+                FluentButton { text: "Save"; primary: true; clicked => {
+                    let error = root.validate-provider-settings(tokenhub-model.text, tokenhub-key.text);
+                    root.feedback(error, error == "" ? FeedbackKind.info : FeedbackKind.error);
+                    if error == "" { root.persist-provider-settings(tokenhub-model.text, tokenhub-key.text, provider-proxy.checked); tokenhub-key.text = ""; }
+                } }
+            }
+        }
+    }
+}

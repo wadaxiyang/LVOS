@@ -5,6 +5,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     winresource::WindowsResource::new()
         .set_icon("resources/lvos.ico")
         .compile()?;
-    slint_build::compile("ui/app.slint")?;
+    let libraries = std::collections::HashMap::from([(
+        quadrant_kit::SLINT_LIBRARY_NAME.to_owned(),
+        quadrant_kit::slint_library_path(),
+    )]);
+    let config = slint_build::CompilerConfiguration::new()
+        .with_style("fluent".into())
+        .with_library_paths(libraries)
+        .embed_resources(slint_build::EmbedResourcesKind::EmbedFiles);
+    slint_build::compile_with_config("ui/app.slint", config)?;
     Ok(())
 }

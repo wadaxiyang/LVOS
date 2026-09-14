@@ -1,0 +1,36 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentSwitch, UiConstants } from "@quadrant-kit";
+import { FeedbackKind } from "../../model/ui_types.slint";
+
+export component UpdateSettingsPage inherits VerticalLayout {
+    in-out property <int> proxy-kind: 0;
+    in-out property <string> proxy-address;
+    in-out property <bool> provider-proxy-enabled: false;
+    in-out property <bool> update-proxy-enabled: false;
+    in property <string> update-status: "No update check performed";
+
+    callback persist-network-settings(string, int, bool, bool) -> string;
+    callback check-update-requested;
+
+    callback feedback(string, FeedbackKind);
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "Update"; description: "Check for updates and open the official release page."; }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            SettingRow { title: "Update status"; description: root.update-status; }
+            SettingRow { title: "Update proxy"; description: "Use the proxy configured in General for update checks.";
+                update-proxy := FluentSwitch { checked <=> root.update-proxy-enabled; accessible-label: "Update proxy"; }
+            }
+            HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
+                FluentButton { text: "Save network"; clicked => {
+                    let error = root.persist-network-settings(root.proxy-address, root.proxy-kind, root.provider-proxy-enabled, update-proxy.checked);
+                    let success = error == ""; root.feedback(success ? "Network settings saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                } }
+                FluentButton { text: "Check for updates"; primary: true; clicked => { root.check-update-requested(); } }
+            }
+        }
+    }
+}

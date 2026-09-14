@@ -1,0 +1,24 @@
+import { SurfaceCard, SettingRow, SectionHeader, FluentButton, FluentIcons, UiConstants } from "@quadrant-kit";
+
+export component DataSettingsPage inherits VerticalLayout {
+
+
+    callback export-data-requested;
+    callback import-data-requested;
+
+
+    spacing: UiConstants.space_12;
+    vertical-stretch: 0;
+    SectionHeader { title: "Data"; description: "Move your vocabulary without exporting secrets or device identity."; }
+    SurfaceCard {
+        VerticalLayout {
+            padding: UiConstants.space_20;
+            spacing: UiConstants.space_12;
+            SettingRow { title: "Portable archive"; description: "Includes history and favorites. Credentials, sessions, and installation identity are excluded."; }
+            HorizontalLayout { alignment: end; spacing: UiConstants.space_12;
+                FluentButton { text: "Import data"; icon: FluentIcons.folder_open; clicked => { root.import-data-requested(); } }
+                FluentButton { text: "Export data"; icon: FluentIcons.backup; clicked => { root.export-data-requested(); } }
+            }
+        }
+    }
+}
