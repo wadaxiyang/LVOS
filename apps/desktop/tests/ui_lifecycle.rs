@@ -5,6 +5,10 @@ use slint::ComponentHandle;
 use std::{cell::Cell, rc::Rc};
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "the Rust test harness runs tests off the AppKit main thread; native process checks cover this path"
+)]
 fn coordinator_starts_cold_and_recreates_the_management_host()
 -> Result<(), Box<dyn std::error::Error>> {
     let ui = UiProcessCoordinator::new()?;
