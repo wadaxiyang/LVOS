@@ -1,9 +1,9 @@
-# LVOS unsigned release notes
+# LVOS 0.1.6 unsigned release notes
 
-The Kit 0.1.1 desktop migration is an engineering preview pending native acceptance and the
-distribution decision recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Do not publish
-its desktop artifacts as a stable release before those gates are resolved. The instructions
-below describe the existing unsigned artifact format and verification process.
+This release migrates the desktop to Quadrant-Kit 0.1.1 Fluent components.
+Remaining native acceptance gaps are documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+Dependency license compatibility and audit questions remain open as recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); publication does not resolve them.
 
 Both platform ZIPs include a top-level `NOTICES/` directory with the LVOS license, the desktop
 dependency notice, the Kit GPL license and derivation notice, and the Fluent System Icons MIT
@@ -12,12 +12,15 @@ and candidate verifier require these notice files; do not strip them when redist
 
 ## Highlights
 
-- Native global selection capture with a compact, non-intrusive Lookup Card.
-- Local-first, deduplicated History, QueryStats, Favorites, search, and clear behavior.
-- User-configured Tencent TokenHub translation with native credential storage.
-- Optional private multi-User Server with persistent login, Device control, offline Outbox,
-  revisioned bidirectional Favorite/QueryStats sync, migration, backup, and recovery.
-- Versioned Portable Data export/import and bounded GitHub Release update discovery.
+- Unified Kit navigation, History and Favorites lists, and a Fluent settings page with a single
+  scrolling layout instead of a second navigation sidebar.
+- Kit password fields for credentials, with temporary field contents cleared when leaving or saving.
+- Kit lookup, permission, progress, error and confirmation UI; stronger popup focus and dismissal
+  handling and modal lifecycle protection.
+- Official Git dependency pinned to Kit 0.1.1, embedded UI assets, and isolated server-only builds.
+- Required dependency notices and verification in both platform archives.
+- Existing local lookup, optional private-server synchronization, portable data and manual updates
+  remain available.
 
 ## Verify the download
 

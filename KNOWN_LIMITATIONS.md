@@ -11,9 +11,9 @@
   approved release performance budget. Actual service/tray workflows remain separate checks.
 - Kit 0.1.1 InfoBar does not size its internal border correctly around wrapped messages.
   LVOS uses a short Kit summary plus scrollable full business detail, dismissed together.
-- Public distribution of the migrated desktop is pending the PolyForm/GPL license decision
-  and the remaining dependency notice audit. Local engineering ZIPs include the minimum Kit
-  notice inventory; their existence does not make a release ready. See
+- The PolyForm/GPL distribution license compatibility decision and the remaining dependency
+  license audit are unresolved. Release ZIPs include the minimum Kit notice inventory;
+  publication and inclusion of those texts do not settle these questions. See
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 - Desktop release targets are limited to Windows 11 x86_64 and macOS 15 arm64. Linux, Intel macOS,

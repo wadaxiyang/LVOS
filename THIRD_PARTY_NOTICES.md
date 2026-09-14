@@ -1,9 +1,9 @@
 # Desktop dependency notices
 
-This Kit migration is an engineering preview. Public desktop distribution is pending a license
-compatibility decision: LVOS retains PolyForm Noncommercial 1.0.0 and Quadrant-Kit declares
-GPL-3.0-only. Including these texts does not resolve that decision or grant additional rights.
-Slint and the remaining Rust dependency license audit also remains required before distribution.
+LVOS retains PolyForm Noncommercial 1.0.0 and Quadrant-Kit declares GPL-3.0-only.
+Their distribution license compatibility decision remains unresolved. Including these texts
+with the release does not resolve that decision or grant additional rights.
+The Slint and remaining Rust dependency license audit is also incomplete.
 
 The desktop embeds Slint UI and image assets from Quadrant-Kit **0.1.1**, obtained as a build
 dependency from https://github.com/wadaxiyang/Quadrant-Kit.git at

@@ -45,9 +45,9 @@ V1 limitations and excluded features: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.m
 
 ## License
 
-The current desktop source uses Quadrant-Kit 0.1.1 and is pending full native acceptance and a
-distribution license decision. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) before packaging this migration.
+LVOS 0.1.6 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
+compatibility decision remain incomplete. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the outstanding limitations.
 
 LVOS is source-available under the unmodified
 [PolyForm Noncommercial License 1.0.0](LICENSE). It is not OSI open source.
