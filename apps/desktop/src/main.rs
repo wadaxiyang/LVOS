@@ -12,7 +12,8 @@ use std::{path::PathBuf, sync::Arc};
 use lvos::{
     ConfirmationRequest, DesktopApplication, GitHubUpdateConfig, GitHubUpdateService,
     HttpUpdateTransport, LocalPreferenceStore, LookupMode, NativeReleasePageOpener,
-    NetworkPreferences, ProviderPreferences, ProxyKind, UpdateCheckOutcome, UpdateCoordinator,
+    NetworkPreferences, ProviderPreferences, ProxyKind, UiPreferences, UpdateCheckOutcome,
+    UpdateCoordinator, popup_idle_timeout_from_preset_index, popup_idle_timeout_preset_index,
 };
 use lvos::{DesktopRuntime, SlintUiDispatcher, UiControllerDispatcher, UiProcessCoordinator};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
@@ -62,6 +63,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let runtime = DesktopRuntime::new(SlintUiDispatcher);
     let ui = UiProcessCoordinator::new()?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let ui_preferences = load_ui_preferences();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        ui.set_popup_idle_timeout_secs(ui_preferences.popup_idle_timeout_secs)?;
+        install_ui_preferences(&ui, ui_preferences);
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let application = install_application_runtime(&ui, &runtime)?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     install_update_runtime(&ui, &runtime, &application)?;
@@ -71,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let native =
         install_windows_runtime(&ui, &runtime, instance, &log_path, Arc::clone(&application))?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if !load_boolean_preference("launch-minimized") {
+    if !ui_preferences.launch_minimized {
         ui.show_main_window()?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1159,16 +1167,7 @@ fn install_windows_runtime(
     }))?;
 
     let tray = WindowsTray::install()?;
-    let launch_minimized = load_boolean_preference("launch-minimized");
     ui.on_main_created(move |main, _| {
-        main.set_launch_minimized(launch_minimized);
-        main.on_update_launch_minimized(move |enabled| {
-            if save_boolean_preference("launch-minimized", enabled).is_ok() {
-                "".into()
-            } else {
-                "The launch preference could not be saved.".into()
-            }
-        });
         main.set_start_at_login(lvos_platform::windows::start_at_login_enabled());
         main.on_update_start_at_login(move |enabled| {
             match lvos_platform::windows::set_start_at_login(enabled) {
@@ -1329,7 +1328,6 @@ fn install_macos_runtime(
 
     let tray = MacOsTray::install()?;
     install_accessibility_ui(ui);
-    let launch_minimized = load_boolean_preference("launch-minimized");
     ui.on_main_created(move |main, _| {
         main.set_start_at_login(lvos_platform::macos::start_at_login_enabled());
         main.on_update_start_at_login(
@@ -1341,14 +1339,6 @@ fn install_macos_runtime(
                 Err(_) => "Start at login is available only from the packaged LVOS app.".into(),
             },
         );
-        main.set_launch_minimized(launch_minimized);
-        main.on_update_launch_minimized(move |enabled| {
-            if save_boolean_preference("launch-minimized", enabled).is_ok() {
-                "".into()
-            } else {
-                "The launch preference could not be saved.".into()
-            }
-        });
     });
     let hotkey_display = load_platform_hotkey();
     let hotkey_registration = lvos_platform::macos::parse_hotkey_display(&hotkey_display)?;
@@ -1558,6 +1548,66 @@ fn local_preferences() -> LocalPreferenceStore {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_ui_preferences() -> UiPreferences {
+    match UiPreferences::load(&local_preferences()) {
+        Ok(preferences) => preferences,
+        Err(error) => {
+            tracing::warn!(%error, "invalid persisted UI preferences; using first-run defaults");
+            UiPreferences::default()
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn install_ui_preferences(ui: &UiProcessCoordinator, preferences: UiPreferences) {
+    let preference_ui = ui.clone();
+    ui.on_main_created(move |main, _| {
+        main.set_launch_minimized(preferences.launch_minimized);
+        main.set_popup_idle_timeout_index(popup_idle_timeout_preset_index(
+            preference_ui.popup_idle_timeout_secs(),
+        ));
+
+        let launch_window = main.as_weak();
+        main.on_update_launch_minimized(move |enabled| {
+            if save_boolean_preference(lvos::LAUNCH_MINIMIZED_KEY, enabled).is_ok() {
+                "".into()
+            } else {
+                if let Some(main) = launch_window.upgrade() {
+                    main.set_launch_minimized(!enabled);
+                }
+                "The launch preference could not be saved.".into()
+            }
+        });
+
+        let timeout_ui = preference_ui.clone();
+        let timeout_window = main.as_weak();
+        main.on_update_popup_idle_timeout(move |index| {
+            let Some(timeout_secs) = popup_idle_timeout_from_preset_index(index) else {
+                return "Choose one of the available retention times.".into();
+            };
+            if let Err(error) =
+                UiPreferences::save_popup_idle_timeout(&local_preferences(), timeout_secs)
+            {
+                if let Some(main) = timeout_window.upgrade() {
+                    main.set_popup_idle_timeout_index(popup_idle_timeout_preset_index(
+                        timeout_ui.popup_idle_timeout_secs(),
+                    ));
+                }
+                tracing::warn!(%error, "failed to persist Popup idle retention");
+                return "The lookup popup retention preference could not be saved.".into();
+            }
+            match timeout_ui.set_popup_idle_timeout_secs(timeout_secs) {
+                Ok(()) => "".into(),
+                Err(error) => {
+                    tracing::warn!(%error, "failed to apply Popup idle retention");
+                    "The lookup popup retention preference is invalid.".into()
+                }
+            }
+        });
+    });
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn load_platform_hotkey() -> String {
     let saved = local_preferences().load_text("global-hotkey");
     #[cfg(target_os = "macos")]
@@ -1573,11 +1623,6 @@ fn load_platform_hotkey() -> String {
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn save_platform_hotkey(value: &str) -> Result<(), std::io::Error> {
     local_preferences().save_text("global-hotkey", value.trim())
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn load_boolean_preference(name: &str) -> bool {
-    local_preferences().load_boolean(name)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

@@ -37,5 +37,15 @@ fn coordinator_starts_cold_and_recreates_the_management_host()
     ui.hide_permission_window()?;
     assert!(!ui.has_permission_host());
     assert!(permission.upgrade().is_none());
+    let popup = ui.popup().as_weak();
+
+    assert!(ui.has_popup_host());
+    assert_eq!(ui.popup_lifecycle_state(), PopupLifecycleState::Warm);
+
+    ui.set_popup_idle_timeout_secs(0)?;
+
+    assert!(!ui.has_popup_host());
+    assert_eq!(ui.popup_lifecycle_state(), PopupLifecycleState::Cold);
+    assert!(popup.upgrade().is_none());
     Ok(())
 }

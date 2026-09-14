@@ -58,6 +58,7 @@ export component MainWindow inherits Window {
     in-out property <string> global-hotkey: "⌥D";
     in-out property <bool> start-at-login;
     in-out property <bool> launch-minimized;
+    in-out property <int> popup-idle-timeout-index: 2;
 
     callback history-search(string);
     callback favorites-search(string);
@@ -79,6 +80,7 @@ export component MainWindow inherits Window {
     callback update-global-hotkey(string) -> string;
     callback update-start-at-login(bool) -> string;
     callback update-launch-minimized(bool) -> string;
+    callback update-popup-idle-timeout(int) -> string;
 
     in-out property <bool> confirmation-shown: false;
     in property <int> confirmation-id;
@@ -187,6 +189,7 @@ export component MainWindow inherits Window {
                 global-hotkey <=> root.global-hotkey;
                 start-at-login <=> root.start-at-login;
                 launch-minimized <=> root.launch-minimized;
+                popup-idle-timeout-index <=> root.popup-idle-timeout-index;
                 clear-history-requested() => { root.clear-history-requested(); }
                 validate-provider-settings(model, api-key) => { return root.validate-provider-settings(model, api-key); }
                 persist-provider-settings(model, api-key, use-proxy) => { root.persist-provider-settings(model, api-key, use-proxy); }
@@ -204,6 +207,7 @@ export component MainWindow inherits Window {
                 update-global-hotkey(shortcut) => { return root.update-global-hotkey(shortcut); }
                 update-start-at-login(enabled) => { return root.update-start-at-login(enabled); }
                 update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
+                update-popup-idle-timeout(index) => { return root.update-popup-idle-timeout(index); }
             }
         }
     }

@@ -11,11 +11,13 @@ export component GeneralSettingsPage inherits VerticalLayout {
     in-out property <string> global-hotkey: "⌥D";
     in-out property <bool> start-at-login;
     in-out property <bool> launch-minimized;
+    in-out property <int> popup-idle-timeout-index: 2;
 
     callback persist-network-settings(string, int, bool, bool) -> string;
     callback update-global-hotkey(string) -> string;
     callback update-start-at-login(bool) -> string;
     callback update-launch-minimized(bool) -> string;
+    callback update-popup-idle-timeout(int) -> string;
 
     callback feedback(string, FeedbackKind);
     changed global-hotkey => { hotkey.text = root.global-hotkey; }
@@ -55,6 +57,23 @@ export component GeneralSettingsPage inherits VerticalLayout {
                     if error != "" { self.checked = !self.checked; }
                     let success = error == ""; root.feedback(success ? "Launch preference saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
                 } }
+            }
+            SettingRow {
+                title: "Lookup popup idle retention";
+                description: "Keep a closed lookup window briefly for faster repeated queries, then release its UI resources.";
+                popup-retention := FluentComboBox {
+                    enabled: root.interaction-enabled;
+                    width: 176px;
+                    model: ["Release immediately", "15 seconds", "30 seconds (default)", "60 seconds", "120 seconds"];
+                    current-index <=> root.popup-idle-timeout-index;
+                    accessible-label: "Lookup popup idle retention";
+                    selected(value) => {
+                        let selected-index = self.current-index;
+                        let error = root.update-popup-idle-timeout(selected-index);
+                        let success = error == "";
+                        root.feedback(success ? "Lookup popup retention saved." : error, success ? FeedbackKind.success : FeedbackKind.error);
+                    }
+                }
             }
         }
     }

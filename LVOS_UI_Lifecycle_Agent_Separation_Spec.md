@@ -1375,11 +1375,21 @@ spawn lvos-ui
 
 除非有明确 GUI 需求。
 
+这里的“正常启动”指后台启动路径，且当时没有权限提示、恢复失败或其他必须由用户处理的 GUI 请求。命令行显式打开、托盘打开、第二实例激活和 `launch-minimized=false` 都属于明确 GUI 需求。
+
 ---
 
 # 34. Launch Minimized Semantics
 
 现有 `launch-minimized` 需要重新定义。
+
+首次启动或本地配置缺失、损坏时，默认值必须为：
+
+```text
+launch-minimized = true
+```
+
+因此首次正常后台启动只创建 Agent。用户之后显式关闭该选项，才在后续启动时自动打开主窗口。权限请求等必须由用户处理的流程可以覆盖该选项并启动 UI。
 
 在新架构下：
 
@@ -1872,7 +1882,7 @@ IPC reconnect after UI restart
 
 ## AC1
 
-启动 LVOS 且不打开 UI 时：
+以后台方式启动 LVOS，`launch-minimized=true`，且没有权限提示等 GUI 需求时：
 
 ```text
 only lvos-agent exists

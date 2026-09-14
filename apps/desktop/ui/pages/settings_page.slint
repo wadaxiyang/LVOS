@@ -34,6 +34,7 @@ export component SettingsPage inherits VerticalLayout {
     in-out property <string> global-hotkey: "⌥D";
     in-out property <bool> start-at-login;
     in-out property <bool> launch-minimized;
+    in-out property <int> popup-idle-timeout-index: 2;
 
     callback clear-history-requested;
     callback validate-provider-settings(string, string) -> string;
@@ -52,6 +53,7 @@ export component SettingsPage inherits VerticalLayout {
     callback update-global-hotkey(string) -> string;
     callback update-start-at-login(bool) -> string;
     callback update-launch-minimized(bool) -> string;
+    callback update-popup-idle-timeout(int) -> string;
 
     in-out property <FeedbackKind> settings-feedback-kind: FeedbackKind.info;
     in-out property <length> settings-scroll-y;
@@ -96,10 +98,12 @@ export component SettingsPage inherits VerticalLayout {
                 global-hotkey <=> root.global-hotkey;
                 start-at-login <=> root.start-at-login;
                 launch-minimized <=> root.launch-minimized;
+                popup-idle-timeout-index <=> root.popup-idle-timeout-index;
                 persist-network-settings(address, kind, provider-proxy, update-proxy) => { return root.persist-network-settings(address, kind, provider-proxy, update-proxy); }
                 update-global-hotkey(shortcut) => { return root.update-global-hotkey(shortcut); }
                 update-start-at-login(enabled) => { return root.update-start-at-login(enabled); }
                 update-launch-minimized(enabled) => { return root.update-launch-minimized(enabled); }
+                update-popup-idle-timeout(index) => { return root.update-popup-idle-timeout(index); }
                 feedback(message, kind) => { root.settings-feedback-kind = kind; root.settings-error = message; }
             }
             translation := TranslationSettingsPage { interaction-enabled: root.interaction-enabled;

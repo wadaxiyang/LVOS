@@ -107,7 +107,8 @@ pub fn show_permission_window(permission: &PermissionWindow) -> Result<(), UiCon
     Ok(())
 }
 
-pub(crate) const DEFAULT_POPUP_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const DEFAULT_POPUP_IDLE_TIMEOUT: Duration =
+    Duration::from_secs(crate::DEFAULT_POPUP_IDLE_TIMEOUT_SECS as u64);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PopupLifecycleState {
@@ -684,6 +685,38 @@ impl UiProcessCoordinator {
     /// Returns a platform error if the window cannot be hidden.
     pub fn hide_permission_window(&self) -> Result<(), UiControllerError> {
         destroy_permission_controller(&self.hosts)
+    }
+
+    /// Applies a validated Popup retention timeout to the current lifecycle.
+    ///
+    /// A Warm Popup receives a new lifecycle generation and timer. Zero releases it immediately;
+    /// Active and Cold Popups only use the new value on their next dismissal.
+    ///
+    /// # Errors
+    /// Returns an error when `timeout_secs` is above the supported maximum.
+    pub fn set_popup_idle_timeout_secs(
+        &self,
+        timeout_secs: u32,
+    ) -> Result<(), crate::UiPreferenceError> {
+        let timeout_secs = crate::validate_popup_idle_timeout(timeout_secs)?;
+        let timeout = Duration::from_secs(u64::from(timeout_secs));
+        let warm_generation = {
+            let mut hosts = self.hosts.borrow_mut();
+            hosts.popup_idle_timeout = timeout;
+            (hosts.popup_lifecycle.state == PopupLifecycleState::Warm)
+                .then(|| hosts.popup_lifecycle.warm())
+        };
+        if let Some(generation) = warm_generation {
+            tracing::debug!(event = "popup_warm_reconfigured", generation, timeout_secs);
+            schedule_popup_release(&self.hosts, generation, timeout);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn popup_idle_timeout_secs(&self) -> u32 {
+        u32::try_from(self.hosts.borrow().popup_idle_timeout.as_secs())
+            .unwrap_or(crate::MAX_POPUP_IDLE_TIMEOUT_SECS)
     }
 
     #[must_use]
@@ -1327,6 +1360,19 @@ mod lifecycle_tests {
     #[test]
     fn popup_idle_timeout_defaults_to_thirty_seconds() {
         assert_eq!(DEFAULT_POPUP_IDLE_TIMEOUT, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn reconfiguring_a_warm_popup_invalidates_its_previous_timer_generation() {
+        let mut lifecycle = PopupLifecycle::default();
+        lifecycle.activate();
+        let old_timer = lifecycle.warm();
+        let replacement_timer = lifecycle.warm();
+
+        assert_ne!(old_timer, replacement_timer);
+        assert!(!lifecycle.release_if_current(old_timer));
+        assert!(lifecycle.release_if_current(replacement_timer));
+        assert_eq!(lifecycle.state, PopupLifecycleState::Cold);
     }
 
     #[test]

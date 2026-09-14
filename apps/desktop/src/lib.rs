@@ -8,6 +8,7 @@ mod generation;
 mod lifecycle;
 mod local_store;
 mod lookup;
+mod preferences;
 mod sync_engine;
 mod sync_session;
 mod sync_transport;
@@ -31,6 +32,12 @@ pub use lifecycle::{
 };
 pub use local_store::{LocalPreferenceStore, atomic_write};
 pub use lookup::{LookupError, LookupMode, LookupOutcome, LookupService};
+pub use preferences::{
+    DEFAULT_POPUP_IDLE_TIMEOUT_SECS, LAUNCH_MINIMIZED_KEY, MAX_POPUP_IDLE_TIMEOUT_SECS,
+    POPUP_IDLE_TIMEOUT_KEY, POPUP_IDLE_TIMEOUT_PRESETS, UiPreferenceError, UiPreferences,
+    popup_idle_timeout_from_preset_index, popup_idle_timeout_preset_index,
+    validate_popup_idle_timeout,
+};
 pub use sync_engine::{
     SyncEngine, SyncEngineError, SyncProfileServices, SyncRunOutcome, SyncWorker, SyncWorkerHandle,
 };
