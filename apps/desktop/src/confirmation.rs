@@ -88,11 +88,6 @@ impl ConfirmationBroker {
             }
         });
         let cancel = broker.clone();
-        main.window().on_close_requested(move || {
-            cancel.invalidate();
-            slint::CloseRequestResponse::HideWindow
-        });
-        let cancel = broker.clone();
         main.window().on_winit_window_event(move |window, event| {
             if matches!(event, WindowEvent::Destroyed | WindowEvent::Occluded(true))
                 || (matches!(event, WindowEvent::Focused(false))

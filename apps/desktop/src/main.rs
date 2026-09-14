@@ -14,7 +14,7 @@ use lvos::{
     HttpUpdateTransport, LocalPreferenceStore, LookupMode, NativeReleasePageOpener,
     NetworkPreferences, ProviderPreferences, ProxyKind, UpdateCheckOutcome, UpdateCoordinator,
 };
-use lvos::{DesktopRuntime, SlintUiDispatcher, UiController};
+use lvos::{DesktopRuntime, SlintUiDispatcher, UiControllerDispatcher, UiProcessCoordinator};
 use lvos_core::{DEFAULT_UPDATE_CHANNEL, PRODUCT_NAME, SOFTWARE_VERSION};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     let instance = acquire_windows_instance()?;
     let runtime = DesktopRuntime::new(SlintUiDispatcher);
-    let ui = UiController::new()?;
+    let ui = UiProcessCoordinator::new()?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let application = install_application_runtime(&ui, &runtime)?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn ui_smoke() -> Result<(), Box<dyn Error>> {
-    let ui = UiController::new()?;
+    let ui = UiProcessCoordinator::new()?;
     let frames = std::rc::Rc::new(std::cell::Cell::new(0_u8));
     for (index, window) in [
         ui.main_window().window(),
@@ -128,7 +128,7 @@ fn ui_smoke() -> Result<(), Box<dyn Error>> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn install_application_runtime(
-    ui: &UiController,
+    ui: &UiProcessCoordinator,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
 ) -> Result<Arc<DesktopApplication>, Box<dyn Error>> {
     let credentials: Arc<dyn lvos_auth::CredentialStore> = {
@@ -157,6 +157,50 @@ fn install_application_runtime(
         &device_name(),
         credentials,
     ))?;
+    let (session_restore_tx, session_restore) =
+        tokio::sync::watch::channel(None::<Result<(), String>>);
+    let main_ui = ui.dispatcher();
+    let main_application = Arc::clone(&application);
+    let main_session_restore = session_restore.clone();
+    let handle = runtime.runtime_handle();
+    ui.on_main_created(move |_, _| {
+        main_ui.with_local(|main_ui| {
+            if let Err(error) = initialize_main_application(
+                main_ui,
+                &handle,
+                Arc::clone(&main_application),
+                main_session_restore.clone(),
+            ) {
+                tracing::error!(%error, "failed to initialize management window");
+            }
+        });
+    });
+    install_popup_callbacks(ui, &runtime.runtime_handle(), Arc::clone(&application));
+    if application.profile().user_id.is_some() {
+        let resume_application = Arc::clone(&application);
+        runtime.spawn(async move {
+            let result = resume_application
+                .resume_session()
+                .await
+                .map_err(|error| error.to_string());
+            if let Err(error) = &result {
+                tracing::warn!(%error, "session restore failed");
+            }
+            session_restore_tx.send_replace(Some(result));
+        });
+    } else {
+        session_restore_tx.send_replace(Some(Ok(())));
+    }
+    Ok(application)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn initialize_main_application(
+    ui: &UiProcessCoordinator,
+    handle: &tokio::runtime::Handle,
+    application: Arc<DesktopApplication>,
+    session_restore: tokio::sync::watch::Receiver<Option<Result<(), String>>>,
+) -> Result<(), Box<dyn Error>> {
     let preferences = application.provider_preferences();
     ui.main_window()
         .set_tokenhub_model(preferences.tokenhub_model.clone().into());
@@ -195,48 +239,59 @@ fn install_application_runtime(
         }
         .into(),
     );
-    install_local_ui_callbacks(ui, runtime, Arc::clone(&application));
+    install_local_ui_callbacks(ui, handle, Arc::clone(&application));
     refresh_history(
         ui.main_window().as_weak(),
-        &runtime.runtime_handle(),
+        handle,
         Arc::clone(&application),
         String::new(),
     );
     refresh_favorites(
         ui.main_window().as_weak(),
-        &runtime.runtime_handle(),
+        handle,
         Arc::clone(&application),
         String::new(),
     );
-    if should_resume {
-        let main = ui.main_window().as_weak();
-        let resume_application = Arc::clone(&application);
-        let resume_handle = runtime.runtime_handle();
-        resume_handle.clone().spawn(async move {
-            match resume_application.resume_session().await {
-                Ok(()) => {
-                    apply_account_state(&main, &resume_application, "Connected");
-                    refresh_devices(main, &tokio::runtime::Handle::current(), resume_application);
-                }
-                Err(error) => apply_account_state(
-                    &main,
-                    &resume_application,
-                    &format!("Session restore failed: {error}"),
-                ),
-            }
-        });
-    }
-    Ok(application)
+    let main = ui.main_window().as_weak();
+    let account_application = Arc::clone(&application);
+    handle.spawn(async move {
+        let mut session_restore = session_restore;
+        if session_restore.borrow().is_none() {
+            let _ = session_restore.changed().await;
+        }
+        let restore = session_restore
+            .borrow()
+            .clone()
+            .unwrap_or_else(|| Err("Session restore stopped before producing a result".to_owned()));
+        let authenticated = account_application.is_authenticated().await;
+        let status = if authenticated {
+            "Connected".to_owned()
+        } else if let Err(error) = restore {
+            format!("Session restore failed: {error}")
+        } else {
+            "Login required".to_owned()
+        };
+        apply_account_state(&main, &account_application, &status);
+        if authenticated {
+            refresh_devices(
+                main,
+                &tokio::runtime::Handle::current(),
+                account_application,
+            );
+        }
+    });
+    drop(application);
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[allow(clippy::too_many_lines)]
 fn install_local_ui_callbacks(
-    ui: &UiController,
-    runtime: &DesktopRuntime<SlintUiDispatcher>,
+    ui: &UiProcessCoordinator,
+    handle: &tokio::runtime::Handle,
     application: Arc<DesktopApplication>,
 ) {
-    let handle = runtime.runtime_handle();
+    let handle = handle.clone();
     let main = ui.main_window().as_weak();
     let history_application = Arc::clone(&application);
     let history_handle = handle.clone();
@@ -681,49 +736,59 @@ fn install_local_ui_callbacks(
             }
         });
     });
+    drop(application);
+}
 
-    let popup = ui.popup().as_weak();
-    let popup_application = Arc::clone(&application);
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn install_popup_callbacks(
+    ui: &UiProcessCoordinator,
+    handle: &tokio::runtime::Handle,
+    application: Arc<DesktopApplication>,
+) {
     let popup_handle = handle.clone();
-    ui.popup().on_favorite_toggled(move || {
-        let Some(popup) = popup.upgrade() else { return };
-        let application = Arc::clone(&popup_application);
-        let popup = popup.as_weak();
-        let currently_active = popup.upgrade().is_some_and(|popup| popup.get_favorite());
-        popup_handle.spawn(async move {
-            if application
-                .set_last_favorite(!currently_active)
-                .await
-                .is_ok()
-                && let Err(error) = slint::invoke_from_event_loop(move || {
-                    if let Some(popup) = popup.upgrade() {
-                        popup.set_favorite(!currently_active);
-                    }
-                })
-            {
-                tracing::warn!(%error, "failed to update Popup Favorite state");
-            }
-        });
-    });
-
-    let popup = ui.popup().as_weak();
+    let refresh_handle = handle.clone();
+    let popup_application = Arc::clone(&application);
     let refresh_application = application;
-    ui.popup().on_refresh_requested(move || {
-        let popup = popup.clone();
-        let application = Arc::clone(&refresh_application);
-        handle.spawn(async move {
-            if let Some(state) = application.refresh_last().await
-                && application.is_current(&state)
-                && let Err(error) = slint::invoke_from_event_loop(move || {
-                    if let Some(popup) = popup.upgrade()
-                        && let Err(error) = lvos::show_lookup_state(&popup, &state)
-                    {
-                        tracing::warn!(%error, "failed to show refreshed Lookup Card");
-                    }
-                })
-            {
-                tracing::warn!(%error, "failed to dispatch refreshed Lookup Card");
-            }
+    let dispatcher = ui.dispatcher();
+    ui.on_popup_created(move |popup| {
+        let popup_weak = popup.as_weak();
+        let popup_application = Arc::clone(&popup_application);
+        let popup_handle = popup_handle.clone();
+        popup.on_favorite_toggled(move || {
+            let Some(popup) = popup_weak.upgrade() else {
+                return;
+            };
+            let application = Arc::clone(&popup_application);
+            let popup = popup.as_weak();
+            let currently_active = popup.upgrade().is_some_and(|popup| popup.get_favorite());
+            popup_handle.spawn(async move {
+                if application
+                    .set_last_favorite(!currently_active)
+                    .await
+                    .is_ok()
+                    && let Err(error) = slint::invoke_from_event_loop(move || {
+                        if let Some(popup) = popup.upgrade() {
+                            popup.set_favorite(!currently_active);
+                        }
+                    })
+                {
+                    tracing::warn!(%error, "failed to update Popup Favorite state");
+                }
+            });
+        });
+
+        let refresh_application = Arc::clone(&refresh_application);
+        let refresh_handle = refresh_handle.clone();
+        popup.on_refresh_requested(move || {
+            let application = Arc::clone(&refresh_application);
+            refresh_handle.spawn(async move {
+                if let Some(state) = application.refresh_last().await
+                    && application.is_current(&state)
+                    && let Err(error) = dispatcher.show_lookup(state)
+                {
+                    tracing::warn!(%error, "failed to dispatch refreshed Lookup Card");
+                }
+            });
         });
     });
 }
@@ -903,19 +968,12 @@ fn device_name() -> String {
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 async fn show_captured_lookup(
     application: Arc<DesktopApplication>,
-    popup: slint::Weak<lvos::QuickLookupPopup>,
+    ui: UiControllerDispatcher,
     source: String,
 ) {
     let loading = application.begin_lookup(source.clone());
     let generation = loading.generation().unwrap_or(0);
-    let loading_popup = popup.clone();
-    if let Err(error) = slint::invoke_from_event_loop(move || {
-        if let Some(popup) = loading_popup.upgrade()
-            && let Err(error) = lvos::show_lookup_state(&popup, &loading)
-        {
-            tracing::warn!(%error, "failed to show loading Lookup Card");
-        }
-    }) {
+    if let Err(error) = ui.show_lookup(loading) {
         tracing::warn!(%error, "failed to dispatch loading Lookup Card");
     }
     let state = application
@@ -924,13 +982,7 @@ async fn show_captured_lookup(
     if !application.is_current(&state) {
         return;
     }
-    if let Err(error) = slint::invoke_from_event_loop(move || {
-        if let Some(popup) = popup.upgrade()
-            && let Err(error) = lvos::show_lookup_state(&popup, &state)
-        {
-            tracing::warn!(%error, "failed to show Lookup Card result");
-        }
-    }) {
+    if let Err(error) = ui.show_lookup(state) {
         tracing::warn!(%error, "failed to dispatch Lookup Card result");
     }
 }
@@ -938,7 +990,7 @@ async fn show_captured_lookup(
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[allow(clippy::too_many_lines)]
 fn install_update_runtime(
-    ui: &UiController,
+    ui: &UiProcessCoordinator,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
     application: &Arc<DesktopApplication>,
 ) -> Result<(), Box<dyn Error>> {
@@ -958,24 +1010,31 @@ fn install_update_runtime(
         Arc::new(NativeReleasePageOpener),
         &application_data_root(),
     ));
-    ui.main_window()
-        .set_update_status(format!("Current {SOFTWARE_VERSION} · {channel} · Not checked").into());
-
-    let manual_main = ui.main_window().as_weak();
-    let manual_coordinator = Arc::clone(&coordinator);
-    let manual_transport = transport.clone();
-    let manual_application = Arc::clone(application);
-    let manual_runtime = runtime.runtime_handle();
-    ui.main_window().on_check_update_requested(move || {
-        if let Some(main) = manual_main.upgrade() {
-            main.set_update_status("Checking GitHub Releases…".into());
-        }
-        let main = manual_main.clone();
-        let coordinator = Arc::clone(&manual_coordinator);
-        let transport = manual_transport.clone();
-        let application = Arc::clone(&manual_application);
-        let channel = channel.clone();
-        manual_runtime.spawn(async move {
+    let update_coordinator = Arc::clone(&coordinator);
+    let update_transport = transport.clone();
+    let update_application = Arc::clone(application);
+    let update_runtime = runtime.runtime_handle();
+    let update_channel = channel.clone();
+    ui.on_main_created(move |main, _| {
+        main.set_update_status(
+            format!("Current {SOFTWARE_VERSION} · {update_channel} · Not checked").into(),
+        );
+        let manual_main = main.as_weak();
+        let manual_coordinator = Arc::clone(&update_coordinator);
+        let manual_transport = update_transport.clone();
+        let manual_application = Arc::clone(&update_application);
+        let manual_runtime = update_runtime.clone();
+        let channel = update_channel.clone();
+        main.on_check_update_requested(move || {
+            if let Some(main) = manual_main.upgrade() {
+                main.set_update_status("Checking GitHub Releases…".into());
+            }
+            let main = manual_main.clone();
+            let coordinator = Arc::clone(&manual_coordinator);
+            let transport = manual_transport.clone();
+            let application = Arc::clone(&manual_application);
+            let channel = channel.clone();
+            manual_runtime.spawn(async move {
             let network = application.network_preferences();
             let proxy_url = if network.update_proxy_enabled {
                 network.proxy_url().ok().flatten()
@@ -1023,9 +1082,9 @@ fn install_update_runtime(
                 tracing::warn!(%error, "failed to dispatch manual update status");
             }
         });
+        });
     });
 
-    let startup_main = ui.main_window().as_weak();
     let startup_transport = transport;
     let startup_application = Arc::clone(application);
     runtime.spawn(async move {
@@ -1054,14 +1113,8 @@ fn install_update_runtime(
                 Some("Automatic update check failed. Manual retry is available.".to_owned())
             }
         };
-        if let Some(status) = status
-            && let Err(error) = slint::invoke_from_event_loop(move || {
-                if let Some(main) = startup_main.upgrade() {
-                    main.set_update_status(status.into());
-                }
-            })
-        {
-            tracing::warn!(%error, "failed to dispatch startup update status");
+        if let Some(status) = status {
+            tracing::info!(status, "startup update check completed");
         }
     });
     Ok(())
@@ -1092,62 +1145,66 @@ fn acquire_windows_instance() -> Result<Box<dyn lvos_platform::SingleInstanceGua
 #[cfg(target_os = "windows")]
 #[allow(clippy::too_many_lines)]
 fn install_windows_runtime(
-    ui: &UiController,
+    ui: &UiProcessCoordinator,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
     instance: Box<dyn lvos_platform::SingleInstanceGuard>,
     log_path: &Path,
     application: Arc<DesktopApplication>,
 ) -> Result<WindowsRuntime, Box<dyn Error>> {
-    let main = ui.main_window().as_weak();
+    let open_ui = ui.dispatcher();
     instance.set_open_handler(Arc::new(move || {
-        let main = main.clone();
-        if let Err(error) = slint::invoke_from_event_loop(move || {
-            if let Some(main) = main.upgrade()
-                && let Err(error) = main.show()
-            {
-                tracing::warn!(%error, "failed to open Main Window from second instance");
-            }
-        }) {
+        if let Err(error) = open_ui.show_main() {
             tracing::warn!(%error, "failed to dispatch second-instance activation");
         }
     }))?;
 
     let tray = WindowsTray::install()?;
     let launch_minimized = load_boolean_preference("launch-minimized");
-    ui.main_window().set_launch_minimized(launch_minimized);
-    ui.main_window().on_update_launch_minimized(move |enabled| {
-        if save_boolean_preference("launch-minimized", enabled).is_ok() {
-            "".into()
-        } else {
-            "The launch preference could not be saved.".into()
-        }
-    });
-    ui.main_window()
-        .set_start_at_login(lvos_platform::windows::start_at_login_enabled());
-    ui.main_window().on_update_start_at_login(move |enabled| {
-        match lvos_platform::windows::set_start_at_login(enabled) {
-            Ok(()) => "".into(),
-            Err(_) => "Windows could not update the current-user startup registration.".into(),
-        }
+    ui.on_main_created(move |main, _| {
+        main.set_launch_minimized(launch_minimized);
+        main.on_update_launch_minimized(move |enabled| {
+            if save_boolean_preference("launch-minimized", enabled).is_ok() {
+                "".into()
+            } else {
+                "The launch preference could not be saved.".into()
+            }
+        });
+        main.set_start_at_login(lvos_platform::windows::start_at_login_enabled());
+        main.on_update_start_at_login(move |enabled| {
+            match lvos_platform::windows::set_start_at_login(enabled) {
+                Ok(()) => "".into(),
+                Err(_) => "Windows could not update the current-user startup registration.".into(),
+            }
+        });
     });
 
     let hotkey_display = load_platform_hotkey();
-    ui.main_window()
-        .set_global_hotkey(hotkey_display.clone().into());
     let hotkey = WindowsHotKey::register(&hotkey_display).inspect_err(|_error| {
         let _ = WindowsNotificationService.error(
             "The default Alt+D shortcut is unavailable. Choose another shortcut in Settings.",
         );
     })?;
-    let popup = ui.popup().as_weak();
+    let lookup_ui = ui.dispatcher();
     let async_runtime = runtime.runtime_handle();
     let capture = Arc::new(WindowsSelectionCapture::default());
     let capture_log_path = log_path.to_path_buf();
-    let capture_confirmations = ui.confirmations().clone();
+    let capture_confirmations = Arc::new(std::sync::Mutex::new(None::<lvos::ConfirmationBroker>));
+    let current_confirmations = Arc::clone(&capture_confirmations);
+    ui.on_main_created(move |_, confirmations| {
+        if let Ok(mut current) = current_confirmations.lock() {
+            *current = Some(confirmations);
+        }
+    });
     hotkey.set_activation_handler(Arc::new(move || {
-        if capture_confirmations.is_blocking() { return; }
+        if capture_confirmations
+            .lock()
+            .ok()
+            .and_then(|current| current.as_ref().map(lvos::ConfirmationBroker::is_blocking))
+            .unwrap_or(false)
+        {
+            return;
+        }
         tracing::info!("Windows global hotkey released; scheduling selection capture");
-        let popup = popup.clone();
         let capture = Arc::clone(&capture);
         let capture_log_path = capture_log_path.clone();
         let application = Arc::clone(&application);
@@ -1156,7 +1213,7 @@ fn install_windows_runtime(
             match capture.capture_selected_text(std::time::Duration::from_millis(800)).await {
                 Ok(source) => {
                     tracing::info!(selected_text_bytes = source.len(), "Windows selection capture completed");
-                    show_captured_lookup(application, popup, source).await;
+                    show_captured_lookup(application, lookup_ui, source).await;
                 }
                 Err(lvos_platform::CaptureError::Busy) => {}
                 Err(error) => {
@@ -1179,39 +1236,43 @@ fn install_windows_runtime(
     // The Win32 registration owns a hidden HWND and must remain on the Slint UI thread.
     let hotkey = Rc::new(RefCell::new(hotkey));
     let settings_hotkey = Rc::clone(&hotkey);
-    let hotkey_window = ui.main_window().as_weak();
-    ui.main_window().on_update_global_hotkey(move |display| {
-        if lvos_platform::windows::parse_hotkey_display(display.as_str()).is_err() {
-            return "Use a modifier and one letter, for example Alt+D.".into();
-        }
-        let mut hotkey = settings_hotkey.borrow_mut();
-        match hotkey.update(display.as_str()) {
-            Ok(()) => {
-                if let Some(main) = hotkey_window.upgrade() {
-                    main.set_global_hotkey(display.clone());
+    ui.on_main_created(move |main, _| {
+        main.set_global_hotkey(hotkey_display.clone().into());
+        let settings_hotkey = Rc::clone(&settings_hotkey);
+        let hotkey_window = main.as_weak();
+        main.on_update_global_hotkey(move |display| {
+            if lvos_platform::windows::parse_hotkey_display(display.as_str()).is_err() {
+                return "Use a modifier and one letter, for example Alt+D.".into();
+            }
+            let mut hotkey = settings_hotkey.borrow_mut();
+            match hotkey.update(display.as_str()) {
+                Ok(()) => {
+                    if let Some(main) = hotkey_window.upgrade() {
+                        main.set_global_hotkey(display.clone());
+                    }
+                    match save_platform_hotkey(display.as_str()) {
+                        Ok(()) => "".into(),
+                        Err(_) => {
+                            "The hotkey changed but its preference could not be saved.".into()
+                        }
+                    }
                 }
-                match save_platform_hotkey(display.as_str()) {
-                    Ok(()) => "".into(),
-                    Err(_) => "The hotkey changed but its preference could not be saved.".into(),
+                Err(lvos_platform::PlatformError::Conflict) => {
+                    "That shortcut is already in use. The previous hotkey remains active.".into()
+                }
+                Err(_) => {
+                    "The shortcut could not be registered. The previous hotkey remains active."
+                        .into()
                 }
             }
-            Err(lvos_platform::PlatformError::Conflict) => {
-                "That shortcut is already in use. The previous hotkey remains active.".into()
-            }
-            Err(_) => {
-                "The shortcut could not be registered. The previous hotkey remains active.".into()
-            }
-        }
+        });
     });
 
-    let main = ui.main_window().as_weak();
+    let tray_ui = ui.dispatcher();
     tray.set_action_handler(Arc::new(move |action| {
-        let main = main.clone();
         if let Err(error) = slint::invoke_from_event_loop(move || match action {
             WindowsTrayAction::OpenMainWindow => {
-                if let Some(main) = main.upgrade()
-                    && let Err(error) = main.show()
-                {
+                if let Err(error) = tray_ui.show_main() {
                     tracing::warn!(%error, "failed to open Main Window from tray");
                 }
             }
@@ -1254,65 +1315,68 @@ fn acquire_macos_instance() -> Result<Box<dyn lvos_platform::SingleInstanceGuard
 #[cfg(target_os = "macos")]
 #[allow(clippy::too_many_lines)]
 fn install_macos_runtime(
-    ui: &UiController,
+    ui: &UiProcessCoordinator,
     runtime: &DesktopRuntime<SlintUiDispatcher>,
     instance: Box<dyn lvos_platform::SingleInstanceGuard>,
     application: Arc<DesktopApplication>,
 ) -> Result<MacOsRuntime, Box<dyn Error>> {
-    let main = ui.main_window().as_weak();
+    let open_ui = ui.dispatcher();
     instance.set_open_handler(Arc::new(move || {
-        let main = main.clone();
-        if let Err(error) = slint::invoke_from_event_loop(move || {
-            if let Some(main) = main.upgrade()
-                && let Err(error) = main.show()
-            {
-                tracing::warn!(%error, "failed to open Main Window from second instance");
-            }
-        }) {
+        if let Err(error) = open_ui.show_main() {
             tracing::warn!(%error, "failed to dispatch second-instance activation");
         }
     }))?;
 
     let tray = MacOsTray::install()?;
     install_accessibility_ui(ui);
-    ui.main_window()
-        .set_start_at_login(lvos_platform::macos::start_at_login_enabled());
-    ui.main_window().on_update_start_at_login(move |enabled| {
-        match lvos_platform::macos::set_start_at_login(enabled) {
-            Ok(()) => "".into(),
-            Err(lvos_platform::PlatformError::PermissionDenied) => {
-                "Allow LVOS under System Settings > General > Login Items.".into()
-            }
-            Err(_) => "Start at login is available only from the packaged LVOS app.".into(),
-        }
-    });
     let launch_minimized = load_boolean_preference("launch-minimized");
-    ui.main_window().set_launch_minimized(launch_minimized);
-    ui.main_window().on_update_launch_minimized(move |enabled| {
-        if save_boolean_preference("launch-minimized", enabled).is_ok() {
-            "".into()
-        } else {
-            "The launch preference could not be saved.".into()
-        }
+    ui.on_main_created(move |main, _| {
+        main.set_start_at_login(lvos_platform::macos::start_at_login_enabled());
+        main.on_update_start_at_login(
+            move |enabled| match lvos_platform::macos::set_start_at_login(enabled) {
+                Ok(()) => "".into(),
+                Err(lvos_platform::PlatformError::PermissionDenied) => {
+                    "Allow LVOS under System Settings > General > Login Items.".into()
+                }
+                Err(_) => "Start at login is available only from the packaged LVOS app.".into(),
+            },
+        );
+        main.set_launch_minimized(launch_minimized);
+        main.on_update_launch_minimized(move |enabled| {
+            if save_boolean_preference("launch-minimized", enabled).is_ok() {
+                "".into()
+            } else {
+                "The launch preference could not be saved.".into()
+            }
+        });
     });
     let hotkey_display = load_platform_hotkey();
-    ui.main_window()
-        .set_global_hotkey(hotkey_display.as_str().into());
     let hotkey_registration = lvos_platform::macos::parse_hotkey_display(&hotkey_display)?;
     let hotkey = MacOsHotKey::register(&hotkey_registration).inspect_err(|_error| {
         let _ = MacOsNotificationService.error(
             "The default Option+D shortcut is unavailable. Close the conflicting application and restart LVOS.",
         );
     })?;
-    let popup = ui.popup().as_weak();
-    let permission = ui.permission_window().as_weak();
+    let lookup_ui = ui.dispatcher();
+    let permission_ui = ui.dispatcher();
     let async_runtime = runtime.runtime_handle();
     let capture = Arc::new(lvos_platform::macos::MacOsSelectionCapture::default());
-    let capture_confirmations = ui.confirmations().clone();
+    let capture_confirmations = Arc::new(std::sync::Mutex::new(None::<lvos::ConfirmationBroker>));
+    let current_confirmations = Arc::clone(&capture_confirmations);
+    ui.on_main_created(move |_, confirmations| {
+        if let Ok(mut current) = current_confirmations.lock() {
+            *current = Some(confirmations);
+        }
+    });
     hotkey.set_pressed_handler(Arc::new(move || {
-        if capture_confirmations.is_blocking() { return; }
-        let popup = popup.clone();
-        let permission = permission.clone();
+        if capture_confirmations
+            .lock()
+            .ok()
+            .and_then(|current| current.as_ref().map(lvos::ConfirmationBroker::is_blocking))
+            .unwrap_or(false)
+        {
+            return;
+        }
         let capture = Arc::clone(&capture);
         let application = Arc::clone(&application);
         async_runtime.spawn(async move {
@@ -1321,21 +1385,14 @@ fn install_macos_runtime(
                 .await
             {
                 Ok(source) => {
-                    show_captured_lookup(application, popup, source).await;
+                    show_captured_lookup(application, lookup_ui, source).await;
                 }
                 Err(lvos_platform::CaptureError::Busy) => {}
                 Err(lvos_platform::CaptureError::PermissionDenied) => {
-                    let permission = permission.clone();
-                    if let Err(error) = slint::invoke_from_event_loop(move || {
-                        if let Some(permission) = permission.upgrade() {
-                            permission.set_status_text(
-                                "Permission is still disabled. Enable LVOS in System Settings, then click Check Again.".into(),
-                            );
-                            if let Err(error) = lvos::show_permission_window(&permission) {
-                                tracing::warn!(%error, "failed to show permission window");
-                            }
-                        }
-                    }) {
+                    if let Err(error) = permission_ui.show_permission(Some(
+                        "Permission is still disabled. Enable LVOS in System Settings, then click Check Again."
+                            .to_owned(),
+                    )) {
                         tracing::warn!(%error, "failed to dispatch permission window");
                     }
                 }
@@ -1348,40 +1405,45 @@ fn install_macos_runtime(
     }));
     let hotkey = Arc::new(Mutex::new(hotkey));
     let settings_hotkey = Arc::clone(&hotkey);
-    let hotkey_window = ui.main_window().as_weak();
-    ui.main_window().on_update_global_hotkey(move |display| {
-        let Ok(registration) = lvos_platform::macos::parse_hotkey_display(display.as_str()) else {
-            return "Use a modifier and one letter, for example ⌥D.".into();
-        };
-        let Ok(mut hotkey) = settings_hotkey.lock() else {
-            return "The global hotkey service is unavailable.".into();
-        };
-        match hotkey.update(&registration) {
-            Ok(()) => {
-                if let Some(main) = hotkey_window.upgrade() {
-                    main.set_global_hotkey(display.clone());
+    ui.on_main_created(move |main, _| {
+        main.set_global_hotkey(hotkey_display.as_str().into());
+        let settings_hotkey = Arc::clone(&settings_hotkey);
+        let hotkey_window = main.as_weak();
+        main.on_update_global_hotkey(move |display| {
+            let Ok(registration) = lvos_platform::macos::parse_hotkey_display(display.as_str())
+            else {
+                return "Use a modifier and one letter, for example ⌥D.".into();
+            };
+            let Ok(mut hotkey) = settings_hotkey.lock() else {
+                return "The global hotkey service is unavailable.".into();
+            };
+            match hotkey.update(&registration) {
+                Ok(()) => {
+                    if let Some(main) = hotkey_window.upgrade() {
+                        main.set_global_hotkey(display.clone());
+                    }
+                    match save_platform_hotkey(display.as_str()) {
+                        Ok(()) => "".into(),
+                        Err(_) => {
+                            "The hotkey changed but its preference could not be saved.".into()
+                        }
+                    }
                 }
-                match save_platform_hotkey(display.as_str()) {
-                    Ok(()) => "".into(),
-                    Err(_) => "The hotkey changed but its preference could not be saved.".into(),
+                Err(lvos_platform::PlatformError::Conflict) => {
+                    "That shortcut is already in use. The previous hotkey remains active.".into()
+                }
+                Err(_) => {
+                    "The shortcut could not be registered. The previous hotkey remains active."
+                        .into()
                 }
             }
-            Err(lvos_platform::PlatformError::Conflict) => {
-                "That shortcut is already in use. The previous hotkey remains active.".into()
-            }
-            Err(_) => {
-                "The shortcut could not be registered. The previous hotkey remains active.".into()
-            }
-        }
+        });
     });
-    let main = ui.main_window().as_weak();
+    let tray_ui = ui.dispatcher();
     tray.set_action_handler(Arc::new(move |action| {
-        let main = main.clone();
         if let Err(error) = slint::invoke_from_event_loop(move || match action {
             TrayAction::OpenMainWindow => {
-                if let Some(main) = main.upgrade()
-                    && let Err(error) = main.show()
-                {
+                if let Err(error) = tray_ui.show_main() {
                     tracing::warn!(%error, "failed to open Main Window from menu bar");
                 }
             }
@@ -1402,40 +1464,42 @@ fn install_macos_runtime(
 }
 
 #[cfg(target_os = "macos")]
-fn install_accessibility_ui(ui: &UiController) {
-    let permission = ui.permission_window().as_weak();
-    let settings_permission = permission.clone();
-    ui.permission_window().on_open_settings(move || {
-        if let Err(error) = lvos_platform::macos::open_accessibility_settings() {
-            tracing::warn!(%error, "failed to open Accessibility Settings");
-            if let Some(permission) = settings_permission.upgrade() {
-                permission.set_status_text(
-                    "System Settings could not be opened. Open Privacy & Security > Accessibility manually."
-                        .into(),
-                );
-            }
-        }
-    });
-    let check_permission = permission.clone();
-    ui.permission_window().on_check_again(move || {
-        if let Some(permission) = check_permission.upgrade() {
-            if lvos_platform::macos::accessibility_permission_granted() {
-                permission.set_status_text("Permission granted. LVOS is ready.".into());
-                if let Err(error) = permission.hide() {
-                    tracing::warn!(%error, "failed to hide permission window");
+fn install_accessibility_ui(ui: &UiProcessCoordinator) {
+    let permission_ui = ui.dispatcher();
+    ui.on_permission_created(move |permission| {
+        let settings_permission = permission.as_weak();
+        permission.on_open_settings(move || {
+            if let Err(error) = lvos_platform::macos::open_accessibility_settings() {
+                tracing::warn!(%error, "failed to open Accessibility Settings");
+                if let Some(permission) = settings_permission.upgrade() {
+                    permission.set_status_text(
+                        "System Settings could not be opened. Open Privacy & Security > Accessibility manually."
+                            .into(),
+                    );
                 }
-            } else {
-                permission.set_status_text(
-                    "Permission changes may require a restart. Enable LVOS, then click Restart LVOS."
-                        .into(),
-                );
             }
-        }
-    });
-    ui.permission_window().on_restart_requested(move || {
-        if let Err(error) = restart_lvos() {
-            tracing::warn!(%error, "failed to restart LVOS");
-        }
+        });
+        let check_permission = permission.as_weak();
+        permission.on_check_again(move || {
+            if let Some(permission) = check_permission.upgrade() {
+                if lvos_platform::macos::accessibility_permission_granted() {
+                    permission.set_status_text("Permission granted. LVOS is ready.".into());
+                    if let Err(error) = permission_ui.hide_permission() {
+                        tracing::warn!(%error, "failed to queue permission window destruction");
+                    }
+                } else {
+                    permission.set_status_text(
+                        "Permission changes may require a restart. Enable LVOS, then click Restart LVOS."
+                            .into(),
+                    );
+                }
+            }
+        });
+        permission.on_restart_requested(move || {
+            if let Err(error) = restart_lvos() {
+                tracing::warn!(%error, "failed to restart LVOS");
+            }
+        });
     });
     if !lvos_platform::macos::accessibility_permission_granted() {
         let _ = lvos_platform::macos::request_accessibility_permission();
@@ -1443,9 +1507,9 @@ fn install_accessibility_ui(ui: &UiController) {
 }
 
 #[cfg(target_os = "macos")]
-fn show_accessibility_ui_if_needed(ui: &UiController) -> Result<(), Box<dyn Error>> {
+fn show_accessibility_ui_if_needed(ui: &UiProcessCoordinator) -> Result<(), Box<dyn Error>> {
     if !lvos_platform::macos::accessibility_permission_granted() {
-        lvos::show_permission_window(ui.permission_window())?;
+        ui.show_permission_window()?;
     }
     Ok(())
 }

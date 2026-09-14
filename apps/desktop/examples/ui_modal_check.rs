@@ -47,29 +47,42 @@ fn request(broker: ConfirmationBroker, target: i32, results: Rc<Results>) {
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
     let ui = Rc::new(UiController::new()?);
-    ui.main_window()
-        .set_reduce_motion(std::env::args().any(|arg| arg == "reduced"));
     let results = Rc::new(Results::default());
-    let broker = ui.confirmations().clone();
-    let r = Rc::clone(&results);
-    ui.main_window()
-        .on_import_data_requested(move || request(broker.clone(), 3, Rc::clone(&r)));
-    let broker = ui.confirmations().clone();
-    let r = Rc::clone(&results);
-    ui.main_window()
-        .on_regenerate_device_identity_requested(move || request(broker.clone(), 2, Rc::clone(&r)));
-    let broker = ui.confirmations().clone();
-    let r = Rc::clone(&results);
-    ui.main_window()
-        .on_revoke_device_requested(move |_| request(broker.clone(), 1, Rc::clone(&r)));
-    ui.set_devices(vec![DeviceRecord {
-        id: "fixture-device".into(),
-        name: "Synthetic device".into(),
-        platform: "Windows".into(),
-        last_seen: "Fixture".into(),
-        current: true,
-        revoked: false,
-    }]);
+    let hook_results = Rc::clone(&results);
+    let creation_count = Rc::new(Cell::new(0_u32));
+    let hook_creation_count = Rc::clone(&creation_count);
+    let reduced = std::env::args().any(|arg| arg == "reduced");
+    ui.on_main_created(move |main, broker| {
+        let creation = hook_creation_count.get();
+        hook_creation_count.set(creation.saturating_add(1));
+        main.set_reduce_motion(reduced);
+        main.set_active_page(2);
+        main.set_settings_page(if creation == 0 { 6 } else { 2 });
+        let import_broker = broker.clone();
+        let r = Rc::clone(&hook_results);
+        main.on_import_data_requested(move || {
+            request(import_broker.clone(), 3, Rc::clone(&r));
+        });
+        let identity_broker = broker.clone();
+        let r = Rc::clone(&hook_results);
+        main.on_regenerate_device_identity_requested(move || {
+            request(identity_broker.clone(), 2, Rc::clone(&r));
+        });
+        let r = Rc::clone(&hook_results);
+        main.on_revoke_device_requested(move |_| {
+            request(broker.clone(), 1, Rc::clone(&r));
+        });
+        main.set_devices(slint::ModelRc::new(slint::VecModel::from(vec![
+            DeviceRecord {
+                id: "fixture-device".into(),
+                name: "Synthetic device".into(),
+                platform: "Windows".into(),
+                last_seen: "Fixture".into(),
+                current: true,
+                revoked: false,
+            },
+        ])));
+    });
     ui.main_window().set_active_page(2);
     ui.main_window().set_settings_page(6);
     ui.show_main_window()?;
@@ -145,7 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 7 => {
                     let ok = ui.hide_main_window().is_ok();
-                    ("hide management window", ok)
+                    ("destroy management window", ok && !ui.has_main_host())
                 }
                 8 => {
                     let cancelled =

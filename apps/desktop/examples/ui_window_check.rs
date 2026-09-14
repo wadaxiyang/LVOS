@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)] // Native test input is limited to the fixture's own windows.
 mod native {
-    use lvos::{LookupCardState, PopupFocusState, UiController};
+    use lvos::{LookupCardState, PopupFocusState, PopupLifecycleState, UiController};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
     use std::{cell::Cell, error::Error, rc::Rc, str::FromStr, time::Duration};
@@ -202,24 +202,24 @@ mod native {
                     }
                     6 => {
                         let hidden = !ui.popup().window().is_visible()
-                            && ui.popup_focus() == PopupFocusState::Hidden;
+                            && ui.popup_focus() == PopupFocusState::Hidden
+                            && ui.has_popup_host()
+                            && ui.popup_lifecycle_state() == PopupLifecycleState::Warm;
                         focus_main(&ui);
                         ("Escape clears lifecycle", hidden)
                     }
                     7 => {
-                        let queued = lvos::show_lookup_state(
-                            ui.popup(),
-                            &LookupCardState::Loading {
+                        let queued = ui
+                            .show_lookup_card(&LookupCardState::Loading {
                                 generation: 2,
                                 source: "synthetic".into(),
-                            },
-                        )
-                        .is_ok();
+                            })
+                            .is_ok();
                         ("production Loading path", queued)
                     }
                     8 => {
                         let no_activate = foreground_is_main() && ui.popup().window().is_visible();
-                        let queued = lvos::show_lookup_state(ui.popup(), &ready).is_ok();
+                        let queued = ui.show_lookup_card(&ready).is_ok();
                         (
                             "Loading no-activate and Ready replacement",
                             no_activate && queued,
@@ -227,9 +227,7 @@ mod native {
                     }
                     9 => {
                         let no_activate = foreground_is_main();
-                        let queued =
-                            lvos::show_captured_provider_error(ui.popup(), "synthetic source")
-                                .is_ok();
+                        let queued = ui.show_captured_provider_error("synthetic source").is_ok();
                         ("captured-provider error path", no_activate && queued)
                     }
                     10 => {

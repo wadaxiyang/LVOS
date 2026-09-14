@@ -42,8 +42,9 @@ pub use sync_transport::{
 #[cfg(target_os = "macos")]
 pub use ui::show_permission_window;
 pub use ui::{
-    DeviceRecord, FeedbackKind, MainWindow, PermissionWindow, QuickLookupPopup, UiController,
-    UiControllerError, UiRecord, ui_record,
+    DeviceRecord, FeedbackKind, MainWindow, PermissionWindow, PopupLifecycleState,
+    QuickLookupPopup, UiController, UiControllerDispatcher, UiControllerError,
+    UiProcessCoordinator, UiRecord, ui_record,
 };
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use ui::{show_captured_provider_error, show_lookup_state};
