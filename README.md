@@ -61,8 +61,9 @@ No adjacent Kit checkout is needed. Cargo's Git cache is allowed; sibling paths,
 replacement sources, and copied UI implementations are rejected by `scripts/check_kit_adoption.py`.
 
 The official build helper exposes `@quadrant-kit`; Slint 1.17.1 compiles Fluent UI and embeds
-its assets into the binary. Production uses winit/femtovg and the platform default font. The
-pinned winit 0.30 accessor is enabled to create popup windows without activation. Generic
+its assets into the binary. Production uses Winit with Skia over Direct3D 12 on Windows and
+Metal on macOS, plus the platform default font. The pinned Winit 0.30 accessor is enabled to
+reapply popup policy whenever a native window is recreated. Generic
 controls, settings rows, navigation, feedback and confirmations come from Kit. The remaining
 local compositions bind LVOS records/settings, and seven product SVGs cover brand or semantic
 icons unavailable in Kit's public 0.1.1 set.
@@ -70,8 +71,10 @@ icons unavailable in Kit's public 0.1.1 set.
 Run `scripts/check-before-commit.sh` with its documented cross-build prerequisites, or run its
 native Cargo/Python checks individually. CI runs locked checks on Windows and macOS. In an
 interactive desktop session run `ui_navigation_check`, `ui_modal_check`, and (Windows)
-`ui_window_check` with `cargo run --locked -p lvos --example <name>`. Run these diagnostics
-sequentially: parallel windows can steal focus. They use synthetic data, and compiling them
+`ui_window_check` with `SLINT_DESTROY_WINDOW_ON_HIDE=1`. In PowerShell, set it with
+`$env:SLINT_DESTROY_WINDOW_ON_HIDE="1"` before running `cargo run --locked -p lvos --example
+<name>`. Run these diagnostics sequentially: parallel windows can steal focus. They use synthetic
+data, and compiling them
 does not count as executing their native interactions. `ui_render_check <scene> <output.ppm>`
 renders synthetic pages and popup states. Server-only builds use `Cargo.server.toml` and
 `Cargo.server.lock` as in the Dockerfile; they do not consume Kit or Slint.

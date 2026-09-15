@@ -22,6 +22,10 @@ REQUIRED_EXECUTABLE_SCRIPTS = {
     Path("scripts/package-macos-app.sh"),
     Path("scripts/check-windows-cross.sh"),
 }
+PUBLIC_DOCUMENTS = {
+    Path("docs/architecture/RENDERER.md"),
+    Path("docs/performance/SKIA_MIGRATION_BASELINE.md"),
+}
 
 
 def git(*arguments: str) -> bytes:
@@ -42,10 +46,15 @@ def repository_files() -> list[Path]:
 
 def check_internal_documents_untracked() -> None:
     tracked = git("ls-files", "-z", "--", "AGENTS.md", "LVOS_development_spec.md", "docs")
-    paths = [os.fsdecode(name) for name in tracked.split(b"\0") if name]
-    if paths:
-        joined = "\n".join(paths)
+    paths = {Path(os.fsdecode(name)) for name in tracked.split(b"\0") if name}
+    unexpected = sorted(paths - PUBLIC_DOCUMENTS)
+    if unexpected:
+        joined = "\n".join(map(str, unexpected))
         raise SystemExit(f"internal documentation is tracked:\n{joined}")
+    missing = sorted(PUBLIC_DOCUMENTS - paths)
+    if missing:
+        joined = "\n".join(map(str, missing))
+        raise SystemExit(f"required public documentation is not tracked:\n{joined}")
 
 
 def attributes(path: Path) -> dict[str, str]:

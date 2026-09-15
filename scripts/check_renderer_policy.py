@@ -9,6 +9,9 @@ import re
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "apps" / "desktop" / "ui"
+WORKSPACE_MANIFEST = ROOT / "Cargo.toml"
+DESKTOP_UI = ROOT / "apps" / "desktop" / "src" / "ui.rs"
+AGENT_UI_PROCESS = ROOT / "apps" / "agent" / "src" / "ui_process.rs"
 WINDOWS = (
     UI / "windows" / "main_window.slint",
     UI / "windows" / "quick_lookup_popup.slint",
@@ -19,6 +22,31 @@ FONT_SUFFIXES = {".ttf", ".ttc", ".otf", ".otc", ".woff", ".woff2"}
 
 def main() -> None:
     failures: list[str] = []
+
+    workspace_manifest = WORKSPACE_MANIFEST.read_text(encoding="utf-8")
+    slint_pin = re.search(
+        r'^slint\s*=\s*\{[^\n]*version\s*=\s*"=1\.17\.1"',
+        workspace_manifest,
+        re.MULTILINE,
+    )
+    if slint_pin is None:
+        failures.append("workspace Slint dependency is not pinned exactly to 1.17.1")
+
+    desktop_ui = DESKTOP_UI.read_text(encoding="utf-8")
+    for contract in (
+        '.backend_name("winit".into())',
+        '.renderer_name("skia".into())',
+        '#[cfg(target_os = "windows")]',
+        ".require_d3d()",
+        '#[cfg(target_os = "macos")]',
+        ".require_metal()",
+    ):
+        if contract not in desktop_ui:
+            failures.append(f"desktop backend selection contract is missing: {contract}")
+
+    agent_ui_process = AGENT_UI_PROCESS.read_text(encoding="utf-8")
+    if 'command.env("SLINT_DESTROY_WINDOW_ON_HIDE", "1")' not in agent_ui_process:
+        failures.append("Agent no longer injects destroy-on-hide into the UI child")
 
     for window in WINDOWS:
         source = window.read_text(encoding="utf-8")
@@ -99,7 +127,11 @@ def main() -> None:
                 f"{source_path.relative_to(ROOT)} enables partial rendering as production policy"
             )
 
-    manifests = [ROOT / "Cargo.toml", *ROOT.glob("apps/*/Cargo.toml"), *ROOT.glob("crates/*/Cargo.toml")]
+    manifests = [
+        WORKSPACE_MANIFEST,
+        *ROOT.glob("apps/*/Cargo.toml"),
+        *ROOT.glob("crates/*/Cargo.toml"),
+    ]
     manifest_source = "\n".join(path.read_text(encoding="utf-8") for path in manifests)
     if '"renderer-skia"' not in manifest_source:
         failures.append("workspace no longer enables Slint's public Skia renderer feature")
@@ -124,9 +156,7 @@ def main() -> None:
                 f"{source_path.relative_to(ROOT)} binds renderer-neutral UI/platform code to Skia"
             )
 
-    ui_host_source = (ROOT / "apps" / "desktop" / "src" / "ui.rs").read_text(
-        encoding="utf-8"
-    )
+    ui_host_source = desktop_ui
     for field in ("popup", "main", "permission"):
         if f"{field}: None," not in ui_host_source:
             failures.append(f"UiHosts no longer starts with lazy {field} allocation")
@@ -167,9 +197,6 @@ def main() -> None:
         if forbidden in agent_manifest:
             failures.append(f"Agent manifest directly links GUI dependency: {forbidden}")
 
-    agent_ui_process = (ROOT / "apps" / "agent" / "src" / "ui_process.rs").read_text(
-        encoding="utf-8"
-    )
     for contract in (
         "send_if_ready",
         "It never starts a process",
@@ -191,6 +218,18 @@ def main() -> None:
     ):
         if contract not in ui_session:
             failures.append(f"UI idle-exit handshake contract is missing: {contract}")
+
+    current_product_text = "\n".join(
+        [
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            desktop_ui,
+            agent_ui_process,
+            *(path.read_text(encoding="utf-8") for path in UI.rglob("*.slint")),
+        ]
+    ).lower()
+    for obsolete in ("renderer-femtovg", "winit-femtovg", "femtovg"):
+        if obsolete in current_product_text:
+            failures.append(f"current product documentation/source still references {obsolete}")
 
     if failures:
         raise SystemExit("\n".join(f"renderer policy: {failure}" for failure in failures))

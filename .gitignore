@@ -1,7 +1,14 @@
-# Internal project documentation is deliberately local-only.
+# Internal project documentation is deliberately local-only, except for the
+# renderer migration baseline and the public renderer architecture contract.
 /AGENTS.md
 /LVOS_development_spec.md
-/docs/
+/docs/*
+!/docs/architecture/
+/docs/architecture/*
+!/docs/architecture/RENDERER.md
+!/docs/performance/
+/docs/performance/*
+!/docs/performance/SKIA_MIGRATION_BASELINE.md
 /.firecrawl/
 
 # Secrets and local configuration.
