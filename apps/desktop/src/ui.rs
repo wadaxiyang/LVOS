@@ -291,12 +291,18 @@ fn initialize_desktop_backend() -> Result<(), UiControllerError> {
         if ready.get() {
             return Ok(());
         }
-        slint::BackendSelector::new()
+        let selector = slint::BackendSelector::new()
             .backend_name("winit".into())
-            .renderer_name("femtovg".into())
-            .with_winit_window_attributes_hook(|attributes| attributes.with_active(false))
-            .select()
-            .map_err(UiControllerError::Platform)?;
+            .renderer_name("skia".into())
+            .with_winit_window_attributes_hook(|attributes| attributes.with_active(false));
+
+        #[cfg(target_os = "windows")]
+        let selector = selector.require_d3d();
+
+        #[cfg(target_os = "macos")]
+        let selector = selector.require_metal();
+
+        selector.select().map_err(UiControllerError::Platform)?;
         ready.set(true);
         Ok(())
     })
