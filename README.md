@@ -69,10 +69,19 @@ result-with-actions surface come from Kit. The remaining
 local compositions bind LVOS records/settings, and seven product SVGs cover brand or semantic
 icons unavailable in Kit's public 0.1.1 set.
 
+The Quick Lookup result binds provider-owned text one-way to Kit's `ActionTextArea` with
+`read_only: true`. Native selection, Select All, Ctrl/Cmd+C, and context-menu Copy remain
+available, while user edits cannot replace the translation. Lookup count, Copy, and Refresh are
+consumer-defined Footer content inside the same result surface. This replaces the former
+`selectable-result` edit-and-restore workaround; repository policy checks prevent that workaround
+or a duplicate local text-area wrapper from returning.
+
 Run `scripts/check-before-commit.sh` with its documented cross-build prerequisites, or run its
 native Cargo/Python checks individually. CI runs locked checks on Windows and macOS. In an
 interactive desktop session run `ui_navigation_check`, `ui_modal_check`, and (Windows)
-`ui_window_check` with `SLINT_DESTROY_WINDOW_ON_HIDE=1`. In PowerShell, set it with
+`ui_window_check` and `ui_quick_lookup_check` with `SLINT_DESTROY_WINDOW_ON_HIDE=1`. The Quick
+Lookup diagnostic uses only synthetic text and verifies read-only keyboard behavior, clipboard
+commands, the native context menu, Footer callbacks, and loading/error states. In PowerShell, set it with
 `$env:SLINT_DESTROY_WINDOW_ON_HIDE="1"` before running `cargo run --locked -p lvos --example
 <name>`. Run these diagnostics sequentially: parallel windows can steal focus. They use synthetic
 data, and compiling them
