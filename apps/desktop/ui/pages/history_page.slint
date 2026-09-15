@@ -1,9 +1,12 @@
-import { PageHeader, FluentTextField, FluentButton, FluentScrollView, EmptyState, Badge, BadgeKind, FluentIcons, UiConstants } from "@quadrant-kit";
+import { PageHeader, FluentTextField, FluentButton, FluentScrollView, EmptyState, Badge, BadgeKind, FluentIcons, SurfaceCard, Theme, Typography, UiConstants } from "@quadrant-kit";
 import { UiRecord } from "../model/ui_types.slint";
 import { RecordCard } from "../components/record_card.slint";
 export component HistoryPage inherits VerticalLayout {
     in property <bool> interaction-enabled: true;
-    public function restore-focus() { search.focus(); }
+    in-out property <int> detail-index: -1;
+    out property <bool> detail-visible: root.detail-index >= 0 && root.detail-index < root.history-records.length;
+    private property <int> focus-request;
+    public function restore-focus() { root.focus-request += 1; }
     in-out property <string> search-text;
     in property <[UiRecord]> history-records;
     callback history-search(string);
@@ -11,25 +14,77 @@ export component HistoryPage inherits VerticalLayout {
     callback clear-history-requested;
     padding: UiConstants.page_padding_medium;
     spacing: UiConstants.space_16;
-    PageHeader { title: "History"; subtitle: "Your private lookup timeline, stored only on this device."; }
-    HorizontalLayout {
-        vertical-stretch: 0;
-        spacing: UiConstants.space_12;
-        search := FluentTextField { enabled: root.interaction-enabled; horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search history"; edited(value) => { root.history-search(value); } }
-        FluentButton { enabled: root.interaction-enabled; text: "Clear history"; icon: FluentIcons.delete; danger: true; clicked => { root.clear-history-requested(); } }
-    }
-    HorizontalLayout {
-        alignment: start;
-        Badge { horizontal-stretch: 0; text: root.history-records.length == 1 ? "1 entry" : root.history-records.length + " entries"; kind: BadgeKind.neutral; }
-    }
-    FluentScrollView {
-        vertical-stretch: 1;
-        horizontal-scrollbar-policy: always-off;
-        viewport-width: self.visible-width;
-        VerticalLayout {
+    changed history-records => { if (root.detail-index >= root.history-records.length) { root.detail-index = -1; } }
+
+    if !root.detail-visible: VerticalLayout {
+        in property <int> requested-focus: root.focus-request;
+        changed requested-focus => { search.focus(); }
+        spacing: UiConstants.space_16;
+        PageHeader { title: "History"; subtitle: "Your private lookup timeline, stored only on this device."; }
+        HorizontalLayout {
+            vertical-stretch: 0;
             spacing: UiConstants.space_12;
-            for item in root.history-records: RecordCard { interaction-enabled: root.interaction-enabled; item: item; favorite-toggled(key) => { root.favorite-toggled(key, item.favorite); } }
-            if root.history-records.length == 0: EmptyState { title: "No lookups yet"; message: "Select text and press your global shortcut to begin."; icon: @image-url("../icons/history.svg"); }
+            search := FluentTextField { enabled: root.interaction-enabled; horizontal-stretch: 1; text <=> root.search-text; placeholder_text: "Search English or Chinese…"; accessible-role: groupbox; accessible-label: "Search history"; edited(value) => { root.history-search(value); } }
+            FluentButton { enabled: root.interaction-enabled; text: "Clear history"; icon: FluentIcons.delete; danger: true; clicked => { root.clear-history-requested(); } }
+        }
+        HorizontalLayout {
+            alignment: start;
+            Badge { horizontal-stretch: 0; text: root.history-records.length == 1 ? "1 entry" : root.history-records.length + " entries"; kind: BadgeKind.neutral; }
+        }
+        FluentScrollView {
+            vertical-stretch: 1;
+            horizontal-scrollbar-policy: always-off;
+            viewport-width: self.visible-width;
+            VerticalLayout {
+                spacing: UiConstants.space_12;
+                for item[index] in root.history-records: RecordCard {
+                    interaction-enabled: root.interaction-enabled;
+                    open-enabled: true;
+                    item: item;
+                    opened(key) => { root.detail-index = index; }
+                    favorite-toggled(key) => { root.favorite-toggled(key, item.favorite); }
+                }
+                if root.history-records.length == 0: EmptyState { title: "No lookups yet"; message: "Select text and press your global shortcut to begin."; icon: @image-url("../icons/history.svg"); }
+            }
+        }
+    }
+
+    if root.detail-visible: VerticalLayout {
+        spacing: UiConstants.space_16;
+        PageHeader {
+            title: "History detail";
+            subtitle: "Entry " + (root.detail-index + 1) + " of " + root.history-records.length;
+        }
+        detail-scroll := FluentScrollView {
+            vertical-stretch: 1;
+            horizontal-scrollbar-policy: always-off;
+            viewport-width: self.visible-width;
+            SurfaceCard {
+                vertical-stretch: 0;
+                width: detail-scroll.visible-width;
+                VerticalLayout {
+                    padding: UiConstants.space_20;
+                    spacing: UiConstants.space_12;
+                    Text { text: "Original"; color: Theme.text_tertiary; font-size: Typography.caption; font-weight: Typography.semibold; }
+                    Text { width: parent.width; text: root.history-records[root.detail-index].source; color: Theme.text_primary; font-size: Typography.body; wrap: word-wrap; }
+                    Text { text: "Translation"; color: Theme.text_tertiary; font-size: Typography.caption; font-weight: Typography.semibold; }
+                    Text { width: parent.width; text: root.history-records[root.detail-index].translation; color: Theme.text_primary; font-size: Typography.body; wrap: word-wrap; }
+                    Text {
+                        text: (root.history-records[root.detail-index].count > 1 ? root.history-records[root.detail-index].count + " lookups" : "1 lookup")
+                            + (root.history-records[root.detail-index].metadata != "" ? " · " + root.history-records[root.detail-index].metadata : "");
+                        color: Theme.text_tertiary;
+                        font-size: Typography.caption;
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            vertical-stretch: 0;
+            alignment: end;
+            spacing: UiConstants.space_12;
+            FluentButton { enabled: root.interaction-enabled; text: "Back"; clicked => { root.detail-index = -1; } }
+            FluentButton { enabled: root.interaction-enabled && root.detail-index > 0; text: "Previous"; clicked => { root.detail-index -= 1; } }
+            FluentButton { enabled: root.interaction-enabled && root.detail-index + 1 < root.history-records.length; text: "Next"; primary: true; clicked => { root.detail-index += 1; } }
         }
     }
 }

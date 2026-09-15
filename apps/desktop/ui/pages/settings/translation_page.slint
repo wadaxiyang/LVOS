@@ -28,7 +28,14 @@ export component TranslationSettingsPage inherits VerticalLayout {
             Text { text: "Model"; color: Theme.text_primary; font-size: Typography.body; }
             tokenhub-model := FluentTextField { enabled: root.interaction-enabled; text <=> root.tokenhub-model; placeholder_text: "hy-mt2-lite"; accessible-role: groupbox; accessible-label: "TokenHub model"; }
             Text { text: "API key"; color: Theme.text_primary; font-size: Typography.body; }
-            tokenhub-key := FluentTextField { enabled: root.interaction-enabled; min-width: 160px; placeholder_text: "Stored securely in the system credential store"; input-type: InputType.password; accessible-role: groupbox; accessible-label: "TokenHub API key"; }
+            tokenhub-key := FluentTextField {
+                enabled: root.interaction-enabled;
+                min-width: 160px;
+                placeholder_text: root.tokenhub-configured ? "••••••••••••" : "Enter TokenHub API key";
+                input-type: InputType.password;
+                accessible-role: groupbox;
+                accessible-label: root.tokenhub-configured ? "Stored TokenHub API key, hidden" : "TokenHub API key";
+            }
             SettingRow { title: "Provider proxy"; description: "Use the proxy configured in General for translation requests.";
                 provider-proxy := FluentSwitch { enabled: root.interaction-enabled; checked <=> root.provider-proxy-enabled; accessible-label: "Provider proxy"; }
             }

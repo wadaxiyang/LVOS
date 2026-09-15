@@ -706,7 +706,21 @@ impl UiProcessCoordinator {
         slint::spawn_local(async move {
             if let Some(main) = weak.upgrade() {
                 match main.window().winit_window().await {
-                    Ok(native) if main.window().is_visible() => native.focus_window(),
+                    Ok(native) if main.window().is_visible() => {
+                        native.set_minimized(false);
+                        #[cfg(target_os = "windows")]
+                        if let Err(error) = windows_window::show_and_activate(main.window()) {
+                            tracing::warn!(%error, "failed to activate management window");
+                            native.focus_window();
+                        }
+                        #[cfg(target_os = "macos")]
+                        if let Err(error) = macos_window::show_and_activate(main.window()) {
+                            tracing::warn!(%error, "failed to activate management window");
+                            native.focus_window();
+                        }
+                        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+                        native.focus_window();
+                    }
                     Err(error) => tracing::warn!(%error, "failed to activate management window"),
                     _ => {}
                 }
@@ -1238,27 +1252,29 @@ fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState
 
 const POPUP_MIN_WIDTH: u32 = 360;
 const POPUP_MAX_WIDTH: u32 = 640;
-const POPUP_MIN_HEIGHT: u32 = 220;
+const POPUP_MIN_HEIGHT: u32 = 240;
 const POPUP_MAX_HEIGHT: u32 = 420;
 
 fn set_popup_dimensions(popup: &QuickLookupPopup, source: &str, translation: &str) {
-    // Estimate the layout using the rendered text length. Slint then performs the final
-    // word-wrapping inside these bounded dimensions, keeping short lookups compact.
-    let longest_line = source
+    // The source is intentionally a one-line elided summary. Size the card mainly for the full
+    // translated paragraphs, which remain wrapped and vertically scrollable.
+    let source_width = source
         .lines()
-        .chain(translation.lines())
+        .next()
+        .map_or(0, |line| line.chars().count().min(36));
+    let longest_line = translation
+        .lines()
         .map(|line| line.chars().count())
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(source_width);
     let width_hint = u32::try_from(longest_line.saturating_mul(8)).unwrap_or(u32::MAX);
     let width = (120_u32.saturating_add(width_hint)).clamp(POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
     let chars_per_line = (width.saturating_sub(52) / 8).max(1) as usize;
-    let source_lines = wrapped_line_count(source, chars_per_line);
     let translation_lines = wrapped_line_count(translation, chars_per_line);
-    let content_lines =
-        u32::try_from(source_lines.saturating_add(translation_lines).max(1)).unwrap_or(u32::MAX);
+    let content_lines = u32::try_from(translation_lines.max(1)).unwrap_or(u32::MAX);
     let height =
-        (126_u32 + content_lines.saturating_mul(22)).clamp(POPUP_MIN_HEIGHT, POPUP_MAX_HEIGHT);
+        (142_u32 + content_lines.saturating_mul(22)).clamp(POPUP_MIN_HEIGHT, POPUP_MAX_HEIGHT);
 
     popup.set_popup_width(f32::from(u16::try_from(width).unwrap_or(u16::MAX)));
     popup.set_popup_height(f32::from(u16::try_from(height).unwrap_or(u16::MAX)));
@@ -1278,9 +1294,10 @@ mod windows_window {
     use windows::Win32::{
         Foundation::{HWND, RECT},
         UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST, SWP_FRAMECHANGED,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos,
-            WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+            BringWindowToTop, GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
+            SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
+            WS_EX_TOOLWINDOW,
         },
     };
 
@@ -1348,6 +1365,23 @@ mod windows_window {
     pub(super) fn prepare_no_activate(window: &slint::Window) -> Result<(), UiControllerError> {
         let hwnd = native_hwnd(window)?;
         set_popup_style(hwnd, true);
+        Ok(())
+    }
+
+    pub(super) fn show_and_activate(window: &slint::Window) -> Result<(), UiControllerError> {
+        let hwnd = native_hwnd(window)?;
+        // SAFETY: hwnd is the live management window and this call runs in direct response to a
+        // user tray action, which permits Windows to grant foreground activation.
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            BringWindowToTop(hwnd)
+                .map_err(|_| platform_error("Windows management window could not be raised"))?;
+            if !SetForegroundWindow(hwnd).as_bool() {
+                return Err(platform_error(
+                    "Windows management window could not become foreground",
+                ));
+            }
+        }
         Ok(())
     }
 

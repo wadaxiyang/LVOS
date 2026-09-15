@@ -96,6 +96,17 @@ mod native {
             },
         )
     }
+    #[allow(clippy::cast_possible_truncation)]
+    fn click_copy(ui: &UiController) -> bool {
+        let Some(rect) = bounds(ui.popup().window()) else {
+            return false;
+        };
+        let scale = ui.popup().window().scale_factor();
+        click(
+            rect.right - (38. * scale) as i32,
+            rect.bottom - (72. * scale) as i32,
+        )
+    }
     fn outside_click(ui: &UiController) -> bool {
         let Some(main) = bounds(ui.main_window().window()) else {
             return false;
@@ -134,6 +145,13 @@ mod native {
         let count = Rc::clone(&refresh);
         ui.popup()
             .on_refresh_requested(move || count.set(count.get() + 1));
+        let copy = Rc::new(Cell::new(0));
+        let count = Rc::clone(&copy);
+        ui.popup().on_copy_requested(move |text| {
+            if text.as_str() == "Synthetic translation" {
+                count.set(count.get() + 1);
+            }
+        });
         let ready = LookupCardState::Ready {
             generation: 2,
             content_key: lvos_core::ContentKey::from_str(
@@ -157,12 +175,13 @@ mod native {
                     || hwnd(ui.main_window().window()) == Some(unsafe { GetForegroundWindow() });
                 if [2, 5, 6, 16].contains(&index.get()) {
                     println!(
-                        "state step={} visible={} anchor={} focus={:?} favorite={} refresh={}",
+                        "state step={} visible={} anchor={} focus={:?} favorite={} copy={} refresh={}",
                         index.get(),
                         ui.popup().window().is_visible(),
                         foreground_is_main(),
                         ui.popup_focus(),
                         favorite.get(),
+                        copy.get(),
                         refresh.get()
                     );
                 }
@@ -185,13 +204,21 @@ mod native {
                             && foreground_is_main()
                             && ui.popup_focus() == PopupFocusState::VisibleNoActivate,
                     ),
-                    3 => ("native favorite click", click_action(&ui, false)),
+                    3 => {
+                        let clicked = click_action(&ui, false);
+                        let copy_ui = Rc::clone(&ui);
+                        slint::Timer::single_shot(Duration::from_millis(150), move || {
+                            let _ = click_copy(&copy_ui);
+                        });
+                        ("native favorite and copy clicks", clicked)
+                    }
                     4 => {
-                        let once =
-                            favorite.get() == 1 && ui.popup_focus() == PopupFocusState::Interactive;
+                        let once = favorite.get() == 1
+                            && copy.get() == 1
+                            && ui.popup_focus() == PopupFocusState::Interactive;
                         let clicked = click_action(&ui, true);
                         (
-                            "favorite fires once and starts interaction",
+                            "favorite/copy fire once and start interaction",
                             once && clicked,
                         )
                     }
@@ -261,6 +288,7 @@ mod native {
                         "repeated outside close",
                         !ui.popup().window().is_visible()
                             && favorite.get() == 1
+                            && copy.get() == 1
                             && refresh.get() == 1,
                     ),
                     17..=256 => {

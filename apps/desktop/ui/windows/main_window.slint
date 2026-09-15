@@ -40,6 +40,7 @@ export component MainWindow inherits Window {
     in-out property <FeedbackKind> settings-feedback-kind: FeedbackKind.info;
     in-out property <bool> sidebar-collapsed: false;
     in-out property <string> search-text;
+    in-out property <int> history-detail-index: -1;
     in property <[UiRecord]> history-records;
     in property <[UiRecord]> favorite-records;
     in property <[DeviceRecord]> devices;
@@ -153,6 +154,7 @@ export component MainWindow inherits Window {
                 changed restore-request => { self.restore-focus(); }
                 interaction-enabled: !root.confirmation-blocking && !root.operation-pending;
                 search-text <=> root.search-text;
+                detail-index <=> root.history-detail-index;
                 history-records: root.history-records;
                 history-search(value) => { root.history-search(value); }
                 favorite-toggled(key, currently-favorite) => { root.favorite-toggled(key, currently-favorite); }

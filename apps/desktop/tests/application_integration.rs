@@ -72,6 +72,32 @@ fn assert_rejected_provider_settings_are_atomic(application: &DesktopApplication
     );
 }
 
+async fn assert_refresh_exposes_loading_before_completion(
+    application: &DesktopApplication,
+    previous_generation: u64,
+) {
+    let refresh_loading = application
+        .begin_refresh_last()
+        .unwrap_or_else(|| unreachable!("the preceding lookup stored its source"));
+    let (refresh_generation, refresh_source) = match refresh_loading {
+        LookupCardState::Loading { generation, source } => (generation, source),
+        state => unreachable!("refresh must expose Loading before completion: {state:?}"),
+    };
+    assert!(refresh_generation > previous_generation);
+    assert_eq!(refresh_source, "uncached integration");
+    let refresh_completion = application
+        .complete_lookup(refresh_generation, refresh_source, LookupMode::Refresh)
+        .await;
+    assert!(matches!(
+        refresh_completion,
+        LookupCardState::Error {
+            generation,
+            kind: lvos_translation::LookupCardErrorKind::ProviderConfigurationRequired,
+            ..
+        } if generation == refresh_generation
+    ));
+}
+
 #[test]
 fn legacy_provider_preferences_default_the_new_tokenhub_model() {
     let preferences: ProviderPreferences =
@@ -144,6 +170,9 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
     let missing = application
         .lookup("uncached integration".to_owned(), LookupMode::UseCache)
         .await;
+    let missing_generation = missing
+        .generation()
+        .unwrap_or_else(|| unreachable!("lookup state has a generation"));
     assert!(matches!(
         missing,
         LookupCardState::Error {
@@ -151,6 +180,8 @@ async fn production_composition_keeps_cache_available_without_provider_and_secre
             ..
         }
     ));
+
+    assert_refresh_exposes_loading_before_completion(&application, missing_generation).await;
 
     assert_rejected_provider_settings_are_atomic(&application);
 

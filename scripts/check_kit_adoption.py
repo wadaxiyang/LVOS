@@ -14,7 +14,7 @@ KIT_URL = "https://github.com/wadaxiyang/Quadrant-Kit.git"
 KIT_REV = "20cc9d77b737d1326d4320a42f7d26f9a799298f"
 KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.1", "optional": True}
 # These are public 0.1.1 exports, not private implementation names.
-KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
+KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar FluentTextArea InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
 # Exact product compositions, rather than an exemption for a whole directory.
 DECLARATIONS = {
     "windows/main_window.slint": {"MainWindow": "Window"},
@@ -31,7 +31,7 @@ DECLARATIONS = {
     "app.slint": {},
 }
 # Brand and lookup/device semantics missing from the pinned public icon set.
-PRODUCT_ASSETS = {"logo.svg", "history.svg", "star.svg", "star-filled.svg", "translate.svg", "refresh.svg", "devices.svg"}
+PRODUCT_ASSETS = {"logo.svg", "history.svg", "star.svg", "star-filled.svg", "translate.svg", "refresh.svg", "copy.svg", "devices.svg"}
 IDENT = r"[A-Za-z_][\w-]*"
 TOKEN = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|' + IDENT + r'|\d+(?:\.\d+)?(?:px|ms|s|%)?|<=>|:=|=>|->|==|!=|<=|>=|&&|\|\||[{}()\[\];:,.<>+*/%=!?@\-]')
 

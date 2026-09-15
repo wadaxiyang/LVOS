@@ -133,6 +133,12 @@ impl UiSession {
                     });
                 }
             });
+
+            popup.on_copy_requested(move |text| {
+                if let Err(error) = lvos_platform::write_clipboard_text(text.as_str()) {
+                    tracing::warn!(%error, "failed to copy Lookup translation");
+                }
+            });
         });
 
         let session = Rc::clone(self);

@@ -1,5 +1,5 @@
 import { Palette } from "std-widgets.slint";
-import { Theme, ThemeMode, Motion, Typography, UiConstants, SurfaceCard, FluentIcon, IconButton, FluentProgressRing, FluentScrollView, FluentInfoBar, InfoBarKind } from "@quadrant-kit";
+import { Theme, ThemeMode, Motion, Typography, UiConstants, SurfaceCard, FluentIcon, IconButton, FluentProgressRing, FluentInfoBar, FluentTextArea, InfoBarKind } from "@quadrant-kit";
 
 export component QuickLookupPopup inherits Window {
     title: "LVOS Lookup Card";
@@ -39,13 +39,17 @@ export component QuickLookupPopup inherits Window {
     in property <bool> error-visible;
     in property <length> popup-width: 360px;
     in property <length> popup-height: 220px;
+    private property <string> canonical-result: root.error-visible ? root.error-title + "\n" + root.error-detail : root.translated-text;
+    private property <string> selectable-result: root.canonical-result;
     in-out property <int> native-request-id;
     in-out property <bool> native-show-requested;
     in-out property <bool> native-interactive;
     callback favorite-toggled;
     callback refresh-requested;
+    callback copy-requested(string);
     callback interaction-started;
     callback dismiss-requested;
+    changed canonical-result => { root.selectable-result = root.canonical-result; }
 
     SurfaceCard {
         VerticalLayout {
@@ -55,10 +59,14 @@ export component QuickLookupPopup inherits Window {
                 vertical-stretch: 0;
                 spacing: UiConstants.space_12;
                 FluentIcon { source: @image-url("../icons/translate.svg"); size: 24px; icon_color: Theme.accent; }
-                VerticalLayout {
+                Text {
                     horizontal-stretch: 1;
-                    Text { text: root.source-text; color: Theme.text_primary; font-size: Typography.body; font-weight: Typography.semibold; overflow: elide; }
-                    Text { text: "QUICK LOOKUP"; color: Theme.text_tertiary; font-size: Typography.caption; }
+                    text: root.source-text;
+                    color: Theme.text_primary;
+                    font-size: Typography.body;
+                    font-weight: Typography.semibold;
+                    overflow: elide;
+                    vertical-alignment: center;
                 }
                 IconButton {
                     icon: root.favorite ? @image-url("../icons/star-filled.svg") : @image-url("../icons/star.svg");
@@ -67,30 +75,57 @@ export component QuickLookupPopup inherits Window {
                     clicked => { root.interaction-started(); root.favorite-toggled(); }
                 }
             }
-            if root.loading: HorizontalLayout {
-                spacing: UiConstants.space_12;
-                FluentProgressRing { width: 24px; height: 24px; indeterminate: !root.reduce-motion; progress: 0.75; running: !root.reduce-motion; }
-                Text { text: "Translating…"; color: Theme.text_secondary; font-size: Typography.body; vertical-alignment: center; }
-            }
-            if !root.loading: FluentScrollView {
+            VerticalLayout {
                 vertical-stretch: 1;
-                horizontal-scrollbar-policy: always-off;
-                viewport-width: self.visible-width;
-                VerticalLayout {
-                    spacing: UiConstants.space_8;
-                    if root.error-visible: FluentInfoBar { message: "Translation could not finish"; kind: InfoBarKind.error; closable: false; }
-                    Text {
-                        text: root.error-visible ? root.error-title + "\n" + root.error-detail : root.translated-text;
-                        color: Theme.text_primary; font-size: Typography.body; wrap: word-wrap;
+                if root.loading: HorizontalLayout {
+                    spacing: UiConstants.space_12;
+                    FluentProgressRing { width: 24px; height: 24px; indeterminate: !root.reduce-motion; progress: 0.75; running: !root.reduce-motion; }
+                    Text { text: "Translating…"; color: Theme.text_secondary; font-size: Typography.body; vertical-alignment: center; }
+                }
+                if !root.loading && root.error-visible: FluentInfoBar { message: "Translation could not finish"; kind: InfoBarKind.error; closable: false; }
+                result-editor := FluentTextArea {
+                    visible: !root.loading;
+                    vertical-stretch: 1;
+                    text <=> root.selectable-result;
+                    placeholder_text: "Translation";
+                    edited(value) => {
+                        // The public Kit control provides native selection/copy behavior. Restore
+                        // the Provider result immediately so the display itself stays read-only.
+                        root.selectable-result = root.canonical-result;
+                        root.interaction-started();
                     }
                 }
             }
             HorizontalLayout {
                 vertical-stretch: 0;
                 alignment: space-between;
-                Text { text: root.effective-count > 1 ? root.effective-count + " lookups" : ""; color: Theme.text_tertiary; font-size: Typography.caption; vertical-alignment: center; }
-                IconButton { icon: @image-url("../icons/refresh.svg"); tooltip: "Refresh translation"; accessible_name: "Refresh translation";
-                    clicked => { root.interaction-started(); root.refresh-requested(); }
+                Text {
+                    text: root.effective-count > 1 ? root.effective-count + " lookups" : "";
+                    color: Theme.text_tertiary;
+                    font-size: Typography.caption;
+                    vertical-alignment: bottom;
+                }
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    spacing: UiConstants.space_8;
+                    IconButton {
+                        enabled: !root.loading && !root.error-visible && root.translated-text != "";
+                        icon: @image-url("../icons/copy.svg");
+                        tooltip: "Copy translation";
+                        accessible_name: "Copy translation";
+                        clicked => {
+                            root.interaction-started();
+                            root.copy-requested(root.translated-text);
+                        }
+                    }
+                    IconButton {
+                        enabled: !root.loading;
+                        icon: @image-url("../icons/refresh.svg");
+                        tooltip: "Refresh translation";
+                        accessible_name: "Refresh translation";
+                        clicked => { root.interaction-started(); root.refresh-requested(); }
+                    }
                 }
             }
         }

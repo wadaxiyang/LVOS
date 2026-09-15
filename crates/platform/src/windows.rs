@@ -25,7 +25,7 @@ use global_hotkey::{
 use lvos_auth::{AuthError, CredentialKey, CredentialScope, CredentialStore};
 use notify_rust::Notification;
 use tray_icon::{
-    Icon, TrayIcon, TrayIconBuilder,
+    Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuId, MenuItem},
 };
 
@@ -388,7 +388,7 @@ pub enum TrayAction {
 }
 
 pub struct WindowsTray {
-    _icon: TrayIcon,
+    icon: TrayIcon,
     open_id: MenuId,
     quit_id: MenuId,
 }
@@ -417,11 +417,12 @@ impl WindowsTray {
         let icon = TrayIconBuilder::new()
             .with_tooltip("LVOS")
             .with_icon(tray_icon()?)
+            .with_menu_on_left_click(false)
             .with_menu(Box::new(menu))
             .build()
             .map_err(|_| PlatformError::IntegrationFailure)?;
         Ok(Self {
-            _icon: icon,
+            icon,
             open_id,
             quit_id,
         })
@@ -430,11 +431,25 @@ impl WindowsTray {
     pub fn set_action_handler(&self, handler: Arc<dyn Fn(TrayAction) + Send + Sync>) {
         let open_id = self.open_id.clone();
         let quit_id = self.quit_id.clone();
+        let menu_handler = Arc::clone(&handler);
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             if event.id == open_id {
-                handler(TrayAction::OpenMainWindow);
+                menu_handler(TrayAction::OpenMainWindow);
             } else if event.id == quit_id {
-                handler(TrayAction::Quit);
+                menu_handler(TrayAction::Quit);
+            }
+        }));
+        let tray_id = self.icon.id().clone();
+        TrayIconEvent::set_event_handler(Some(move |event| {
+            if let TrayIconEvent::Click {
+                id,
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+                && id == tray_id
+            {
+                handler(TrayAction::OpenMainWindow);
             }
         }));
     }
@@ -1303,6 +1318,17 @@ fn create_registry_key(path: &str) -> Result<RegistryKey, PlatformError> {
     } else {
         Err(PlatformError::IntegrationFailure)
     }
+}
+
+/// Writes text to the Windows clipboard.
+///
+/// # Errors
+/// Returns an integration error when the native clipboard cannot be opened or updated.
+pub(super) fn write_clipboard_text(text: &str) -> Result<(), PlatformError> {
+    let clipboard = ClipboardContext::new().map_err(|_| PlatformError::IntegrationFailure)?;
+    clipboard
+        .set_text(text.to_owned())
+        .map_err(|_| PlatformError::IntegrationFailure)
 }
 
 #[cfg(test)]

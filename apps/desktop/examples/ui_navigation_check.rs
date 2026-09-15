@@ -344,6 +344,22 @@ fn steps() -> Vec<Step> {
             click(ui, 900., 232.);
             s.favorite_state.get() == Some(false)
         }),
+        step("History card opens details", |ui, _| {
+            click(ui, 500., 232.);
+            ui.get_history_detail_index() == 0
+        }),
+        step("History detail opens next entry", |ui, _| {
+            click(ui, 915., 605.);
+            ui.get_history_detail_index() == 1
+        }),
+        step("History detail opens previous entry", |ui, _| {
+            click(ui, 843., 605.);
+            ui.get_history_detail_index() == 0
+        }),
+        step("History detail returns to list", |ui, _| {
+            click(ui, 770., 605.);
+            ui.get_history_detail_index() == -1
+        }),
         step("Favorites shares search", |ui, _| {
             click(ui, 70., 104.);
             ui.get_active_page() == 1 && ui.get_search_text() == "x"
@@ -441,8 +457,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         favorite: false,
         metadata: SharedString::default(),
     };
+    let mut second_record = record.clone();
+    second_record.key = "fixture-second".into();
+    second_record.source = "second history entry".into();
+    second_record.translation = "第二条历史记录".into();
     ui.set_history_records(slint::ModelRc::new(slint::VecModel::from(vec![
         record.clone(),
+        second_record,
     ])));
     record.favorite = true;
     ui.set_favorite_records(slint::ModelRc::new(slint::VecModel::from(vec![record])));

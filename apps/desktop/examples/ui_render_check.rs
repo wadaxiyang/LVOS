@@ -69,7 +69,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let popup = lvos::QuickLookupPopup::new()?;
         popup.set_dark_theme(dark);
         popup.set_reduce_motion(reduced);
-        popup.set_source_text("invariant".into());
+        popup.set_source_text(if scenario == "long" {
+            "A deliberately long English source sentence that must stay on one line and end with an ellipsis instead of wrapping across the popup.".into()
+        } else {
+            "invariant".into()
+        });
         popup.set_translated_text(if scenario == "long" {
             "这是一段仅用于验证布局与资源的虚构长译文。"
                 .repeat(35)
@@ -89,6 +93,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     main.set_dark_theme(dark);
     main.set_reduce_motion(reduced);
     main.set_global_hotkey("Alt+D".into());
+    main.set_tokenhub_configured(true);
     if args.iter().any(|arg| arg == "collapsed") {
         main.set_sidebar_collapsed(true);
     }
@@ -142,6 +147,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                     })
                     .collect::<Vec<_>>(),
             )));
+        }
+        "history-detail" => {
+            main.set_history_records(slint::ModelRc::new(slint::VecModel::from(vec![
+                lvos::UiRecord {
+                    key: "detail-fixture".into(),
+                    source: "A complete multi-sentence English source remains available in the detail page even though the History list shows an ellipsis.".repeat(4).into(),
+                    translation: "详细页面完整保留译文的段落结构。\n\n这是第二段，用于检查长内容是否可以滚动阅读。".repeat(8).into(),
+                    count: 9,
+                    favorite: false,
+                    metadata: "Synthetic detail fixture".into(),
+                },
+            ])));
+            main.set_history_detail_index(0);
         }
         "feedback-error" | "feedback-success" | "feedback-long" => {
             main.set_active_page(2);

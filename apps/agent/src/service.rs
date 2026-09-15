@@ -573,9 +573,30 @@ impl AgentService {
                 ok("Favorite updated.")
             }
             UiOperation::PopupRefresh { display_session_id } => {
-                if let Some(state) = self.application.refresh_last().await
-                    && self.application.is_current(&state)
+                let loading = self
+                    .application
+                    .begin_refresh_last()
+                    .ok_or_else(|| "There is no translation to refresh.".to_owned())?;
+                let (generation, source) = match &loading {
+                    LookupCardState::Loading { generation, source } => {
+                        (*generation, source.clone())
+                    }
+                    _ => return Err("The refresh did not enter its loading state.".to_owned()),
+                };
+                if !ui
+                    .send_if_ready(AgentToUi::BeginLookup {
+                        display_session_id,
+                        state: lookup_state(loading)?,
+                    })
+                    .await
                 {
+                    return Err("The Popup closed before refresh could start.".to_owned());
+                }
+                let state = self
+                    .application
+                    .complete_lookup(generation, source, lvos::LookupMode::Refresh)
+                    .await;
+                if self.application.is_current(&state) {
                     let _ = ui
                         .send_if_ready(AgentToUi::UpdateLookup {
                             display_session_id,

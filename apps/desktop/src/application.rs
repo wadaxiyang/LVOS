@@ -447,9 +447,10 @@ impl DesktopApplication {
             .is_some_and(|generation| generation == self.generation.load(Ordering::SeqCst))
     }
 
-    pub async fn refresh_last(&self) -> Option<LookupCardState> {
+    /// Starts a fresh Provider lookup for the most recently displayed source.
+    pub fn begin_refresh_last(&self) -> Option<LookupCardState> {
         let source = self.last_source.lock().ok()?.clone()?;
-        Some(self.lookup(source, LookupMode::Refresh).await)
+        Some(self.begin_lookup(source))
     }
 
     /// Searches the active Profile's local History.

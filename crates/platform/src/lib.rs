@@ -48,6 +48,23 @@ pub enum PlatformError {
     IntegrationFailure,
 }
 
+/// Replaces the user clipboard's text contents.
+///
+/// # Errors
+/// Returns [`PlatformError::IntegrationFailure`] when the native clipboard cannot be opened or
+/// updated.
+pub fn write_clipboard_text(text: &str) -> Result<(), PlatformError> {
+    #[cfg(target_os = "windows")]
+    return windows::write_clipboard_text(text);
+    #[cfg(target_os = "macos")]
+    return macos::write_clipboard_text(text);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = text;
+        Err(PlatformError::Unsupported)
+    }
+}
+
 impl fmt::Display for PlatformError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
