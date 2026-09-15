@@ -124,9 +124,45 @@ def main() -> None:
                 f"{source_path.relative_to(ROOT)} binds renderer-neutral UI/platform code to Skia"
             )
 
+    ui_host_source = (ROOT / "apps" / "desktop" / "src" / "ui.rs").read_text(
+        encoding="utf-8"
+    )
+    for field in ("popup", "main", "permission"):
+        if f"{field}: None," not in ui_host_source:
+            failures.append(f"UiHosts no longer starts with lazy {field} allocation")
+    for ensure, component in (
+        ("ensure_main", "MainWindow"),
+        ("ensure_popup", "QuickLookupPopup"),
+        ("ensure_permission", "PermissionWindow"),
+    ):
+        if ui_host_source.count(f"{component}::new()") != 1:
+            failures.append(f"production source must have one lazy {component} constructor")
+        ensure_pattern = rf"fn {ensure}\b[\s\S]*?{component}::new\(\)"
+        if re.search(ensure_pattern, ui_host_source) is None:
+            failures.append(f"{component} construction escaped {ensure}()")
+
+    main_window = (UI / "windows" / "main_window.slint").read_text(encoding="utf-8")
+    for condition in (
+        "if root.active-page == 0: history-page := HistoryPage",
+        "if root.active-page == 1: favorites-page := FavoritesPage",
+        "if root.active-page == 2: settings := SettingsPage",
+    ):
+        if condition not in main_window:
+            failures.append(f"MainWindow lost conditional page construction: {condition}")
+
+    lifecycle_tests = ui_host_source + (ROOT / "apps" / "desktop" / "tests" / "ui_lifecycle.rs").read_text(
+        encoding="utf-8"
+    )
+    for test_name in (
+        "coordinator_starts_without_any_window_host",
+        "coordinator_starts_cold_and_recreates_the_management_host",
+    ):
+        if test_name not in lifecycle_tests:
+            failures.append(f"lazy host regression coverage is missing: {test_name}")
+
     if failures:
         raise SystemExit("\n".join(f"renderer policy: {failure}" for failure in failures))
-    print("renderer font and resource policy checks passed")
+    print("renderer resource and lazy-host policy checks passed")
 
 
 if __name__ == "__main__":
