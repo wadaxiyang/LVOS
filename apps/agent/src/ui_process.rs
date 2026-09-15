@@ -287,6 +287,7 @@ impl UiProcessClient {
 
     async fn spawn_ui(&self, generation: u64) -> Result<(), UiProcessError> {
         let mut command = Command::new(&self.inner.ui_executable);
+        configure_ui_renderer_environment(&mut command);
         command
             .env("LVOS_IPC_ENDPOINT", self.inner.endpoint.argument())
             .env("LVOS_IPC_SESSION", self.inner.session_id.to_string())
@@ -526,6 +527,10 @@ impl UiProcessClient {
     }
 }
 
+fn configure_ui_renderer_environment(command: &mut Command) {
+    command.env("SLINT_DESTROY_WINDOW_ON_HIDE", "1");
+}
+
 fn phase_generation(phase: UiProcessPhase) -> Option<u64> {
     match phase {
         UiProcessPhase::Stopped => None,
@@ -603,6 +608,16 @@ impl From<ProtocolError> for UiProcessError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_child_destroys_native_windows_when_hidden() {
+        let mut command = Command::new("lvos-ui");
+        configure_ui_renderer_environment(&mut command);
+        let configured = command.as_std().get_envs().any(|(name, value)| {
+            name == "SLINT_DESTROY_WINDOW_ON_HIDE" && value.is_some_and(|value| value == "1")
+        });
+        assert!(configured);
+    }
 
     #[test]
     fn lifecycle_generation_is_never_lost_when_a_ui_host_is_rebuilt() {
