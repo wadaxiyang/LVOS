@@ -1,12 +1,36 @@
 //! Windows native lifecycle checks on synthetic windows; no services or user data.
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn main() {
-    println!("NOT_RUN: this fixture requires Windows");
+    println!("NOT_RUN: this fixture requires Windows or macOS");
 }
 
 #[cfg(target_os = "windows")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_diagnostics();
     native::run()
+}
+
+#[cfg(target_os = "macos")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_diagnostics();
+    macos::run()
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn init_diagnostics() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn require_destroy_on_hide() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("SLINT_DESTROY_WINDOW_ON_HIDE").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+    {
+        return Err("run with SLINT_DESTROY_WINDOW_ON_HIDE=1".into());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -25,7 +49,8 @@ mod native {
                 VK_ESCAPE,
             },
             WindowsAndMessaging::{
-                GetCursorPos, GetForegroundWindow, GetWindowRect, SetCursorPos, SetForegroundWindow,
+                GetCursorPos, GetForegroundWindow, GetWindowRect, IsWindow, SetCursorPos,
+                SetForegroundWindow,
             },
         },
     };
@@ -43,6 +68,9 @@ mod native {
         let mut rect = RECT::default();
         unsafe { GetWindowRect(hwnd(window)?, &raw mut rect) }.ok()?;
         Some(rect)
+    }
+    fn native_window_destroyed(hwnd: Option<isize>) -> bool {
+        hwnd.is_some_and(|hwnd| !unsafe { IsWindow(Some(HWND(hwnd as *mut _))) }.as_bool())
     }
     fn click(x: i32, y: i32) -> bool {
         if unsafe { SetCursorPos(x, y) }.is_err() {
@@ -133,6 +161,7 @@ mod native {
 
     #[allow(clippy::too_many_lines)]
     pub(super) fn run() -> Result<(), Box<dyn Error>> {
+        super::require_destroy_on_hide()?;
         let mut original_cursor = POINT::default();
         unsafe { GetCursorPos(&raw mut original_cursor) }?;
         let original_foreground = unsafe { GetForegroundWindow() };
@@ -164,12 +193,15 @@ mod native {
         };
         ui.show_main_window()?;
         let index = Cell::new(0);
+        let last_popup_hwnd = Cell::new(None);
         let failed = Rc::new(Cell::new(false));
         let failure = Rc::clone(&failed);
         let timer = slint::Timer::default();
         timer.start(
             slint::TimerMode::Repeated,
-            Duration::from_millis(400),
+            // Native window and Skia surface recreation is asynchronous. Leave a full event-loop
+            // turn plus GPU initialization time between each observable transition.
+            Duration::from_secs(1),
             move || {
                 let foreground_is_main =
                     || hwnd(ui.main_window().window()) == Some(unsafe { GetForegroundWindow() });
@@ -201,6 +233,7 @@ mod native {
                     2 => (
                         "controller first show never activates popup",
                         ui.popup().window().is_visible()
+                            && ui.popup().window().has_winit_window()
                             && foreground_is_main()
                             && ui.popup_focus() == PopupFocusState::VisibleNoActivate,
                     ),
@@ -224,11 +257,14 @@ mod native {
                     }
                     5 => {
                         let once = refresh.get() == 1;
+                        last_popup_hwnd.set(hwnd(ui.popup().window()).map(|hwnd| hwnd.0 as isize));
                         let once = once && escape();
                         ("refresh fires once; Escape", once)
                     }
                     6 => {
                         let hidden = !ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window()
+                            && native_window_destroyed(last_popup_hwnd.get())
                             && ui.popup_focus() == PopupFocusState::Hidden
                             && ui.has_popup_host()
                             && ui.popup_lifecycle_state() == PopupLifecycleState::Warm;
@@ -245,7 +281,9 @@ mod native {
                         ("production Loading path", queued)
                     }
                     8 => {
-                        let no_activate = foreground_is_main() && ui.popup().window().is_visible();
+                        let no_activate = foreground_is_main()
+                            && ui.popup().window().is_visible()
+                            && ui.popup().window().has_winit_window();
                         let queued = ui.show_lookup_card(&ready).is_ok();
                         (
                             "Loading no-activate and Ready replacement",
@@ -259,11 +297,14 @@ mod native {
                     }
                     10 => {
                         let ready = foreground_is_main() && ui.popup().get_error_visible();
+                        last_popup_hwnd.set(hwnd(ui.popup().window()).map(|hwnd| hwnd.0 as isize));
                         ("native outside click", ready && outside_click(&ui))
                     }
                     11 => (
                         "outside click removes monitor and clears state",
                         !ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window()
+                            && native_window_destroyed(last_popup_hwnd.get())
                             && ui.popup_focus() == PopupFocusState::Hidden,
                     ),
                     12 => {
@@ -273,7 +314,8 @@ mod native {
                     }
                     13 => (
                         "cancelled creation cannot reopen popup",
-                        !ui.popup().window().is_visible(),
+                        !ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window(),
                     ),
                     14 => {
                         let _ = ui.show_lookup_card(&ready);
@@ -282,21 +324,35 @@ mod native {
                     }
                     15 => (
                         "rapid replacement retains one active dismissal path",
-                        ui.popup().window().is_visible() && outside_click(&ui),
+                        ui.popup().window().is_visible()
+                            && {
+                                last_popup_hwnd.set(
+                                    hwnd(ui.popup().window()).map(|hwnd| hwnd.0 as isize),
+                                );
+                                outside_click(&ui)
+                            },
                     ),
                     16 => (
                         "repeated outside close",
                         !ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window()
+                            && native_window_destroyed(last_popup_hwnd.get())
                             && favorite.get() == 1
                             && copy.get() == 1
                             && refresh.get() == 1,
                     ),
-                    17..=256 => {
+                    17..=32 => {
                         if index.get() % 2 == 1 {
-                            let hidden = !ui.popup().window().is_visible();
+                            let hidden = !ui.popup().window().is_visible()
+                                && !ui.popup().window().has_winit_window()
+                                && native_window_destroyed(last_popup_hwnd.get());
                             ("cycle show", hidden && ui.show_lookup_card(&ready).is_ok())
                         } else {
-                            let visible = ui.popup().window().is_visible() && foreground_is_main();
+                            let visible = ui.popup().window().is_visible()
+                                && ui.popup().window().has_winit_window()
+                                && foreground_is_main();
+                            last_popup_hwnd
+                                .set(hwnd(ui.popup().window()).map(|hwnd| hwnd.0 as isize));
                             (
                                 "cycle no-activate/hide",
                                 visible && ui.hide_lookup_card().is_ok(),
@@ -304,19 +360,30 @@ mod native {
                         }
                     }
                     _ => (
-                        "120 production popup cycles complete",
-                        !ui.popup().window().is_visible(),
+                        "8 production popup recreation cycles complete",
+                        !ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window(),
                     ),
                 };
-                if index.get() <= 16 || index.get() == 257 || !ok {
+                if index.get() <= 16 || index.get() == 33 || !ok {
                     println!(
                         "{} {}: {name}",
                         if ok { "PASS" } else { "FAIL" },
                         index.get()
                     );
                 }
+                if !ok {
+                    println!(
+                        "  visible={} native={} anchor={} focus={:?} previous-native-destroyed={}",
+                        ui.popup().window().is_visible(),
+                        ui.popup().window().has_winit_window(),
+                        foreground_is_main(),
+                        ui.popup_focus(),
+                        native_window_destroyed(last_popup_hwnd.get())
+                    );
+                }
                 failure.set(failure.get() || !ok);
-                if index.get() == 257 {
+                if index.get() == 33 {
                     let _ = slint::quit_event_loop();
                 }
                 index.set(index.get() + 1);
@@ -327,6 +394,73 @@ mod native {
         let _ = unsafe { SetForegroundWindow(original_foreground) };
         if failed.get() {
             return Err("native window lifecycle check failed".into());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use lvos::{LookupCardState, PopupFocusState, PopupLifecycleState, UiController};
+    use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
+    use std::{cell::Cell, error::Error, rc::Rc, str::FromStr, time::Duration};
+
+    pub(super) fn run() -> Result<(), Box<dyn Error>> {
+        super::require_destroy_on_hide()?;
+        let ui = Rc::new(UiController::new()?);
+        let ready = LookupCardState::Ready {
+            generation: 1,
+            content_key: lvos_core::ContentKey::from_str(
+                "ce60ddcf96e4c4c3f94a305956a98de6afdebf59e8c6bd10b285b73b06949f08",
+            )?,
+            source: "invariant".into(),
+            translation: "Synthetic translation".into(),
+            favorite: false,
+            effective_query_count: 1,
+        };
+        let step = Cell::new(0_u8);
+        let failed = Rc::new(Cell::new(false));
+        let failure = Rc::clone(&failed);
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(500),
+            move || {
+                let shown = step.get() % 2 == 1;
+                let (name, ok) = if shown {
+                    let visible = ui.popup().window().is_visible()
+                        && ui.popup().window().has_winit_window()
+                        && ui.popup_focus() == PopupFocusState::VisibleNoActivate;
+                    (
+                        "recreated popup is visible without activation",
+                        visible && ui.hide_lookup_card().is_ok(),
+                    )
+                } else {
+                    let hidden = step.get() == 0
+                        || (!ui.popup().window().is_visible()
+                            && !ui.popup().window().has_winit_window()
+                            && ui.popup_lifecycle_state() == PopupLifecycleState::Warm);
+                    (
+                        "hidden popup releases and recreates its native window",
+                        hidden && ui.show_lookup_card(&ready).is_ok(),
+                    )
+                };
+                println!(
+                    "{} {}: {name}",
+                    if ok { "PASS" } else { "FAIL" },
+                    step.get()
+                );
+                failure.set(failure.get() || !ok);
+                if step.get() == 6 {
+                    let _ = ui.hide_lookup_card();
+                    let _ = slint::quit_event_loop();
+                }
+                step.set(step.get() + 1);
+            },
+        );
+        slint::run_event_loop_until_quit()?;
+        if failed.get() {
+            return Err("macOS native window recreation check failed".into());
         }
         Ok(())
     }

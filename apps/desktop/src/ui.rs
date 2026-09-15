@@ -294,7 +294,19 @@ fn initialize_desktop_backend() -> Result<(), UiControllerError> {
         let selector = slint::BackendSelector::new()
             .backend_name("winit".into())
             .renderer_name("skia".into())
-            .with_winit_window_attributes_hook(|attributes| attributes.with_active(false));
+            .with_winit_window_attributes_hook(|attributes| {
+                let attributes = attributes.with_active(false);
+                #[cfg(target_os = "windows")]
+                let attributes = {
+                    use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+                    if attributes.title == "LVOS Lookup Card" {
+                        attributes.with_skip_taskbar(true)
+                    } else {
+                        attributes
+                    }
+                };
+                attributes
+            });
 
         #[cfg(target_os = "windows")]
         let selector = selector.require_d3d();
@@ -1129,14 +1141,41 @@ fn queue_popup_show(popup: &QuickLookupPopup) -> Result<(), UiControllerError> {
         let Some(popup) = weak.upgrade() else {
             return;
         };
-        // winit creates its native window hidden once its event loop is active.
-        // Await it before touching HWND/NSWindow; never show once just to obtain a handle.
+        #[cfg(target_os = "windows")]
+        let previous_foreground = windows_window::foreground_window();
+        #[cfg(target_os = "macos")]
+        let previous_foreground = None;
+        // The first component construction creates a hidden native window. After destroy-on-hide,
+        // show() must register the adapter for re-creation before winit_window().await can
+        // complete. Hide it again in the same event-loop turn so the new native window is created
+        // off-screen. Platform no-activate/taskbar/placement policy can then be applied before the
+        // real show below. This uses only public Slint APIs and is required because Slint 1.17.1
+        // does not re-run the initial WindowAttributes hook from its suspend path.
+        if !popup.window().has_winit_window()
+            && let Err(error) = popup.show().and_then(|()| popup.hide())
+        {
+            tracing::warn!(%error, "failed to request hidden Lookup Card recreation");
+            popup.invoke_dismiss_requested();
+            return;
+        }
         if let Err(error) = popup.window().winit_window().await {
             tracing::warn!(%error, "failed to create native Lookup Card");
             popup.invoke_dismiss_requested();
             return;
         }
         if popup.get_native_request_id() != request || !popup.get_native_show_requested() {
+            // A newer show request owns the recreated window. A real cancellation needs a
+            // visible/hidden transition because the bootstrap hide above already marked Slint's
+            // visibility state hidden before the native window existed.
+            if !popup.get_native_show_requested() {
+                #[cfg(target_os = "windows")]
+                if let Err(error) = windows_window::prepare_no_activate(popup.window()) {
+                    tracing::warn!(%error, "failed to prepare cancelled native Lookup Card");
+                }
+                if let Err(error) = popup.show().and_then(|()| popup.hide()) {
+                    tracing::warn!(%error, "failed to release a cancelled native Lookup Card");
+                }
+            }
             return;
         }
         let interaction = popup.as_weak();
@@ -1150,27 +1189,33 @@ fn queue_popup_show(popup: &QuickLookupPopup) -> Result<(), UiControllerError> {
                                     slint::winit_030::winit::keyboard::NamedKey::Escape,
                                 ) =>
                     {
-                        popup.invoke_dismiss_requested();
+                        queue_popup_dismiss_request(popup.as_weak());
                         return EventResult::PreventDefault;
                     }
                     WindowEvent::MouseInput {
                         state: ElementState::Pressed,
                         ..
-                    }
-                    | WindowEvent::Focused(true) => {
+                    } => {
                         if popup.get_native_show_requested() {
+                            #[cfg(target_os = "windows")]
+                            if let Err(error) =
+                                windows_window::enable_popup_interaction(popup.window())
+                            {
+                                tracing::warn!(%error, "failed to activate interactive Popup");
+                            }
                             popup.invoke_interaction_started();
                         }
                     }
                     WindowEvent::CloseRequested => {
-                        popup.invoke_dismiss_requested();
+                        queue_popup_dismiss_request(popup.as_weak());
+                        return EventResult::PreventDefault;
                     }
                     _ => {}
                 }
             }
             EventResult::Propagate
         });
-        let result = show_prepared_popup(&popup);
+        let result = show_prepared_popup(&popup, previous_foreground);
         if let Err(error) = result {
             tracing::warn!(%error, "failed to present native Lookup Card");
             popup.invoke_dismiss_requested();
@@ -1181,7 +1226,10 @@ fn queue_popup_show(popup: &QuickLookupPopup) -> Result<(), UiControllerError> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn show_prepared_popup(popup: &QuickLookupPopup) -> Result<(), UiControllerError> {
+fn show_prepared_popup(
+    popup: &QuickLookupPopup,
+    previous_foreground: Option<isize>,
+) -> Result<(), UiControllerError> {
     #[cfg(target_os = "windows")]
     {
         WINDOWS_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
@@ -1190,11 +1238,13 @@ fn show_prepared_popup(popup: &QuickLookupPopup) -> Result<(), UiControllerError
         }
         popup.show().map_err(UiControllerError::Platform)?;
         windows_window::configure_visible_popup(popup.window())?;
+        windows_window::restore_previous_foreground(popup.window(), previous_foreground)?;
         let monitor = windows_window::install_outside_click_monitor(popup)?;
         WINDOWS_POPUP_MONITOR.with(|active| active.borrow_mut().replace(monitor));
     }
     #[cfg(target_os = "macos")]
     {
+        let _ = previous_foreground;
         CAPTURE_POPUP_MONITOR.with(|monitor| monitor.borrow_mut().take());
         popup.show().map_err(UiControllerError::Platform)?;
         let bounds = macos_window::show_without_activation_and_place(popup.window())?;
@@ -1214,6 +1264,17 @@ fn show_prepared_popup(popup: &QuickLookupPopup) -> Result<(), UiControllerError
         CAPTURE_POPUP_MONITOR.with(|active| active.borrow_mut().replace(monitor));
     }
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn queue_popup_dismiss_request(popup: slint::Weak<QuickLookupPopup>) {
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(popup) = popup.upgrade() {
+            popup.invoke_dismiss_requested();
+        }
+    }) {
+        tracing::warn!(%error, "failed to defer native Popup dismissal");
+    }
 }
 
 fn apply_lookup_state_to_popup(popup: &QuickLookupPopup, state: &LookupCardState) {
@@ -1300,8 +1361,8 @@ mod windows_window {
     use windows::Win32::{
         Foundation::{HWND, RECT},
         UI::WindowsAndMessaging::{
-            BringWindowToTop, GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
-            SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            BringWindowToTop, GWL_EXSTYLE, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+            HWND_TOPMOST, SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
             SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
             WS_EX_TOOLWINDOW,
         },
@@ -1309,9 +1370,16 @@ mod windows_window {
 
     use super::{QuickLookupPopup, UiControllerError, WINDOWS_POPUP_MONITOR};
 
+    pub(super) fn foreground_window() -> Option<isize> {
+        let foreground = unsafe { GetForegroundWindow() };
+        (!foreground.0.is_null()).then_some(foreground.0 as isize)
+    }
+
     pub(super) fn configure_visible_popup(window: &slint::Window) -> Result<(), UiControllerError> {
         let hwnd = native_hwnd(window)?;
-        set_popup_style(hwnd, false);
+        // Keep WS_EX_NOACTIVATE until a real mouse press switches the popup into interactive mode.
+        // This remains correct even when Slint's recreated winit window uses default attributes.
+        set_popup_style(hwnd, true);
         let scale = f64::from(window.scale_factor());
         let size = window.size();
         let logical_size = lvos_platform::LogicalSize {
@@ -1371,6 +1439,45 @@ mod windows_window {
     pub(super) fn prepare_no_activate(window: &slint::Window) -> Result<(), UiControllerError> {
         let hwnd = native_hwnd(window)?;
         set_popup_style(hwnd, true);
+        Ok(())
+    }
+
+    pub(super) fn enable_popup_interaction(
+        window: &slint::Window,
+    ) -> Result<(), UiControllerError> {
+        let hwnd = native_hwnd(window)?;
+        set_popup_style(hwnd, false);
+        // SAFETY: hwnd is the live Popup window and this path is reached from its mouse-down event.
+        unsafe {
+            BringWindowToTop(hwnd)
+                .map_err(|_| platform_error("Windows Popup could not be raised for interaction"))?;
+            if !SetForegroundWindow(hwnd).as_bool() {
+                return Err(platform_error("Windows Popup could not become interactive"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn restore_previous_foreground(
+        window: &slint::Window,
+        previous_foreground: Option<isize>,
+    ) -> Result<(), UiControllerError> {
+        let hwnd = native_hwnd(window)?;
+        if unsafe { GetForegroundWindow() } != hwnd {
+            return Ok(());
+        }
+        let Some(previous_foreground) = previous_foreground else {
+            return Ok(());
+        };
+        let previous = HWND(previous_foreground as *mut _);
+        if previous == hwnd {
+            return Ok(());
+        }
+        if !unsafe { SetForegroundWindow(previous) }.as_bool() {
+            return Err(platform_error(
+                "Windows Popup could not restore the previous foreground window",
+            ));
+        }
         Ok(())
     }
 
