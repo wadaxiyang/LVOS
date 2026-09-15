@@ -45,7 +45,7 @@ V1 limitations and excluded features: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.m
 
 ## License
 
-LVOS 0.1.7 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
+LVOS 0.1.8 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
 compatibility decision remain incomplete. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the outstanding limitations.
 

@@ -1,4 +1,4 @@
-# LVOS 0.1.7 unsigned release notes
+# LVOS 0.1.8 unsigned release notes
 
 This release separates the long-running native Agent from the on-demand Slint UI process and
 publishes installable desktop packages.
@@ -13,6 +13,15 @@ helper. Native package checks verify this process pair and the notice inventory.
 
 ## Highlights
 
+- A left click on the LVOS tray icon now opens and raises the management window directly; the
+  context menu remains available from the right click.
+- Translation Settings visibly masks an existing TokenHub API key while keeping the secret in the
+  OS Credential Store.
+- Popup Refresh now presents Loading before making a real cache-bypassing Provider request. Long
+  English source text is elided to one line, translated paragraphs remain scrollable and
+  selectable, and a one-click Copy action is available.
+- History rows now keep a fixed compact height. Opening a row shows the complete source and
+  translation with Back, Previous and Next navigation.
 - Unified Kit navigation, History and Favorites lists, and a Fluent settings page with a single
   scrolling layout instead of a second navigation sidebar.
 - Kit password fields for credentials, with temporary field contents cleared when leaving or saving.

@@ -56,7 +56,7 @@ class WorkspaceCheckTests(unittest.TestCase):
             "packages": [
                 {
                     "name": name,
-                    "version": "0.1.7",
+                    "version": "0.1.8",
                     "license": None,
                     "license_file": license_path,
                 }
