@@ -160,9 +160,41 @@ def main() -> None:
         if test_name not in lifecycle_tests:
             failures.append(f"lazy host regression coverage is missing: {test_name}")
 
+    agent_manifest = (ROOT / "apps" / "agent" / "Cargo.toml").read_text(encoding="utf-8")
+    if 'lvos = { path = "../desktop", default-features = false }' not in agent_manifest:
+        failures.append("Agent no longer disables the desktop crate's UI feature")
+    for forbidden in ("slint", "quadrant-kit", "renderer-skia"):
+        if forbidden in agent_manifest:
+            failures.append(f"Agent manifest directly links GUI dependency: {forbidden}")
+
+    agent_ui_process = (ROOT / "apps" / "agent" / "src" / "ui_process.rs").read_text(
+        encoding="utf-8"
+    )
+    for contract in (
+        "send_if_ready",
+        "It never starts a process",
+        "approve_idle_exit",
+        "UiProcessPhase::Stopping",
+    ):
+        if contract not in agent_ui_process:
+            failures.append(f"Agent on-demand/idle lifecycle contract is missing: {contract}")
+
+    ui_session = (ROOT / "apps" / "desktop" / "src" / "ui_session.rs").read_text(
+        encoding="utf-8"
+    )
+    for contract in (
+        "!self.ui.has_live_ui()",
+        "UiToAgent::RequestIdleExit",
+        "AgentToUi::IdleExitApproved",
+        "UiToAgent::CancelIdleExit",
+        "slint::quit_event_loop()",
+    ):
+        if contract not in ui_session:
+            failures.append(f"UI idle-exit handshake contract is missing: {contract}")
+
     if failures:
         raise SystemExit("\n".join(f"renderer policy: {failure}" for failure in failures))
-    print("renderer resource and lazy-host policy checks passed")
+    print("renderer resource, lazy-host, and idle-exit policy checks passed")
 
 
 if __name__ == "__main__":
