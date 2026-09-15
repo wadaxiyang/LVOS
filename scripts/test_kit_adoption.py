@@ -24,6 +24,16 @@ class KitBoundaryTests(unittest.TestCase):
     def test_current_public_import_closure(self):
         scan_ui(self.ui())
 
+    def test_quick_lookup_uses_read_only_action_surface(self):
+        popup = self.ui()[UI + "windows/quick_lookup_popup.slint"]
+        self.assertIn("result-editor := ActionTextArea {", popup)
+        self.assertIn("text: root.canonical-result;", popup)
+        self.assertIn("read_only: true;", popup)
+        self.assertIn('accessible_name: "Copy translation";', popup)
+        self.assertIn('accessible_name: "Refresh translation";', popup)
+        for removed in ("selectable-result", "edited(value)", "FluentTextArea"):
+            self.assertNotIn(removed, popup)
+
     def test_native_alias(self):
         self.reject_ui('import { Button as FluentButton } from "std-widgets.slint";')
 

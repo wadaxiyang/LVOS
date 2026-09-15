@@ -3006,6 +3006,7 @@ version = "0.1.8"
 dependencies = [
  "async-trait",
  "axum",
+ "clipboard-win",
  "futures-util",
  "lvos-auth",
  "lvos-core",
@@ -4331,7 +4332,7 @@ dependencies = [
 [[package]]
 name = "quadrant-kit"
 version = "0.1.1"
-source = "git+https://github.com/wadaxiyang/Quadrant-Kit.git?rev=20cc9d77b737d1326d4320a42f7d26f9a799298f#20cc9d77b737d1326d4320a42f7d26f9a799298f"
+source = "git+https://github.com/wadaxiyang/Quadrant-Kit.git?rev=d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6#d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6"
 
 [[package]]
 name = "quick-error"

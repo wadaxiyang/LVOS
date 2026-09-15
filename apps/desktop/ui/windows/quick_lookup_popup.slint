@@ -1,5 +1,5 @@
 import { Palette } from "std-widgets.slint";
-import { Theme, ThemeMode, Motion, Typography, UiConstants, SurfaceCard, FluentIcon, IconButton, FluentProgressRing, FluentInfoBar, FluentTextArea, InfoBarKind } from "@quadrant-kit";
+import { Theme, ThemeMode, Motion, Typography, UiConstants, SurfaceCard, FluentIcon, IconButton, FluentProgressRing, FluentInfoBar, ActionTextArea, InfoBarKind } from "@quadrant-kit";
 
 export component QuickLookupPopup inherits Window {
     title: "LVOS Lookup Card";
@@ -40,7 +40,6 @@ export component QuickLookupPopup inherits Window {
     in property <length> popup-width: 360px;
     in property <length> popup-height: 220px;
     private property <string> canonical-result: root.error-visible ? root.error-title + "\n" + root.error-detail : root.translated-text;
-    private property <string> selectable-result: root.canonical-result;
     in-out property <int> native-request-id;
     in-out property <bool> native-show-requested;
     in-out property <bool> native-interactive;
@@ -49,7 +48,6 @@ export component QuickLookupPopup inherits Window {
     callback copy-requested(string);
     callback interaction-started;
     callback dismiss-requested;
-    changed canonical-result => { root.selectable-result = root.canonical-result; }
 
     SurfaceCard {
         VerticalLayout {
@@ -83,48 +81,39 @@ export component QuickLookupPopup inherits Window {
                     Text { text: "Translating…"; color: Theme.text_secondary; font-size: Typography.body; vertical-alignment: center; }
                 }
                 if !root.loading && root.error-visible: FluentInfoBar { message: "Translation could not finish"; kind: InfoBarKind.error; closable: false; }
-                result-editor := FluentTextArea {
+                result-editor := ActionTextArea {
                     visible: !root.loading;
                     vertical-stretch: 1;
-                    text <=> root.selectable-result;
+                    text: root.canonical-result;
+                    read_only: true;
                     placeholder_text: "Translation";
-                    edited(value) => {
-                        // The public Kit control provides native selection/copy behavior. Restore
-                        // the Provider result immediately so the display itself stays read-only.
-                        root.selectable-result = root.canonical-result;
-                        root.interaction-started();
-                    }
-                }
-            }
-            HorizontalLayout {
-                vertical-stretch: 0;
-                alignment: space-between;
-                Text {
-                    text: root.effective-count > 1 ? root.effective-count + " lookups" : "";
-                    color: Theme.text_tertiary;
-                    font-size: Typography.caption;
-                    vertical-alignment: bottom;
-                }
-                VerticalLayout {
-                    horizontal-stretch: 0;
-                    alignment: end;
-                    spacing: UiConstants.space_8;
-                    IconButton {
-                        enabled: !root.loading && !root.error-visible && root.translated-text != "";
-                        icon: @image-url("../icons/copy.svg");
-                        tooltip: "Copy translation";
-                        accessible_name: "Copy translation";
-                        clicked => {
-                            root.interaction-started();
-                            root.copy-requested(root.translated-text);
+
+                    HorizontalLayout {
+                        spacing: UiConstants.space_8;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.effective-count > 1 ? root.effective-count + " lookups" : "";
+                            color: Theme.text_tertiary;
+                            font-size: Typography.caption;
+                            vertical-alignment: center;
                         }
-                    }
-                    IconButton {
-                        enabled: !root.loading;
-                        icon: @image-url("../icons/refresh.svg");
-                        tooltip: "Refresh translation";
-                        accessible_name: "Refresh translation";
-                        clicked => { root.interaction-started(); root.refresh-requested(); }
+                        IconButton {
+                            enabled: !root.loading && !root.error-visible && root.translated-text != "";
+                            icon: @image-url("../icons/copy.svg");
+                            tooltip: "Copy translation";
+                            accessible_name: "Copy translation";
+                            clicked => {
+                                root.interaction-started();
+                                root.copy-requested(root.translated-text);
+                            }
+                        }
+                        IconButton {
+                            enabled: !root.loading;
+                            icon: @image-url("../icons/refresh.svg");
+                            tooltip: "Refresh translation";
+                            accessible_name: "Refresh translation";
+                            clicked => { root.interaction-started(); root.refresh-requested(); }
+                        }
                     }
                 }
             }

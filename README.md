@@ -56,7 +56,7 @@ LVOS is source-available under the unmodified
 
 Use the checked-in Rust toolchain and `cargo build --locked -p lvos` on a supported host.
 `apps/desktop/Cargo.toml` consumes the official Quadrant-Kit Git repository as a build dependency,
-with exact version `=0.1.1` and full revision `20cc9d77b737d1326d4320a42f7d26f9a799298f`.
+with exact version `=0.1.1` and full revision `d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6`.
 No adjacent Kit checkout is needed. Cargo's Git cache is allowed; sibling paths, patches,
 replacement sources, and copied UI implementations are rejected by `scripts/check_kit_adoption.py`.
 
@@ -64,7 +64,8 @@ The official build helper exposes `@quadrant-kit`; Slint 1.17.1 compiles Fluent 
 its assets into the binary. Production uses Winit with Skia over Direct3D 12 on Windows and
 Metal on macOS, plus the platform default font. The pinned Winit 0.30 accessor is enabled to
 reapply popup policy whenever a native window is recreated. Generic
-controls, settings rows, navigation, feedback and confirmations come from Kit. The remaining
+controls, settings rows, navigation, feedback, confirmations and the read-only Quick Lookup
+result-with-actions surface come from Kit. The remaining
 local compositions bind LVOS records/settings, and seven product SVGs cover brand or semantic
 icons unavailable in Kit's public 0.1.1 set.
 

@@ -7,7 +7,7 @@ The Slint and remaining Rust dependency license audit is also incomplete.
 
 The desktop embeds Slint UI and image assets from Quadrant-Kit **0.1.1**, obtained as a build
 dependency from https://github.com/wadaxiyang/Quadrant-Kit.git at
-`20cc9d77b737d1326d4320a42f7d26f9a799298f`. Build-only consumption does not remove the embedded
+`d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6`. Build-only consumption does not remove the embedded
 code or its license obligations. No sibling checkout or vendored implementation is used.
 
 The following unchanged upstream texts are retained in `licenses/`:

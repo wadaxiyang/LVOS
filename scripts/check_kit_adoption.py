@@ -11,10 +11,10 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 UI = "apps/desktop/ui/"
 KIT_URL = "https://github.com/wadaxiyang/Quadrant-Kit.git"
-KIT_REV = "20cc9d77b737d1326d4320a42f7d26f9a799298f"
+KIT_REV = "d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6"
 KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.1", "optional": True}
 # These are public 0.1.1 exports, not private implementation names.
-KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar FluentTextArea InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
+KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar FluentTextArea ActionTextArea InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
 # Exact product compositions, rather than an exemption for a whole directory.
 DECLARATIONS = {
     "windows/main_window.slint": {"MainWindow": "Window"},
