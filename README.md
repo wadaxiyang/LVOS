@@ -45,7 +45,7 @@ V1 limitations and excluded features: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.m
 
 ## License
 
-LVOS 0.1.8 uses Quadrant-Kit 0.1.1. Full native acceptance and the distribution license
+LVOS 0.1.9 uses Quadrant-Kit 0.1.3. Full native acceptance and the distribution license
 compatibility decision remain incomplete. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the outstanding limitations.
 
@@ -56,7 +56,7 @@ LVOS is source-available under the unmodified
 
 Use the checked-in Rust toolchain and `cargo build --locked -p lvos` on a supported host.
 `apps/desktop/Cargo.toml` consumes the official Quadrant-Kit Git repository as a build dependency,
-with exact version `=0.1.1` and full revision `d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6`.
+with exact version `=0.1.3` and full revision `225e85150880df0d60bc504ee5c58fb84ffb3670`.
 No adjacent Kit checkout is needed. Cargo's Git cache is allowed; sibling paths, patches,
 replacement sources, and copied UI implementations are rejected by `scripts/check_kit_adoption.py`.
 
@@ -67,10 +67,10 @@ reapply popup policy whenever a native window is recreated. Generic
 controls, settings rows, navigation, feedback, confirmations and the read-only Quick Lookup
 result-with-actions surface come from Kit. The remaining
 local compositions bind LVOS records/settings, and seven product SVGs cover brand or semantic
-icons unavailable in Kit's public 0.1.1 set.
+icons unavailable in Kit's public 0.1.3 set.
 
 The Quick Lookup result binds provider-owned text one-way to Kit's `ActionTextArea` with
-`read_only: true`. Native selection, Select All, Ctrl/Cmd+C, and context-menu Copy remain
+`read_only: true` and `outlined: false`. Native selection, Select All, Ctrl/Cmd+C, and context-menu Copy remain
 available, while user edits cannot replace the translation. Lookup count, Copy, and Refresh are
 consumer-defined Footer content inside the same result surface. This replaces the former
 `selectable-result` edit-and-restore workaround; repository policy checks prevent that workaround

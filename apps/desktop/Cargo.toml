@@ -73,7 +73,7 @@ tempfile = "3.27.0"
 
 [build-dependencies]
 slint-build = { version = "=1.17.1", optional = true }
-quadrant-kit = { git = "https://github.com/wadaxiyang/Quadrant-Kit.git", rev = "d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6", version = "=0.1.1", optional = true }
+quadrant-kit = { git = "https://github.com/wadaxiyang/Quadrant-Kit.git", rev = "225e85150880df0d60bc504ee5c58fb84ffb3670", version = "=0.1.3", optional = true }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = { version = "0.1", optional = true }

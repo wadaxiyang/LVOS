@@ -59,6 +59,8 @@ def main() -> None:
     popup = (UI / "windows" / "quick_lookup_popup.slint").read_text(encoding="utf-8")
     if "ActionTextArea" not in popup or "read_only: true;" not in popup:
         failures.append("Quick Lookup no longer uses Quadrant-Kit's read-only ActionTextArea")
+    if "outlined: false;" not in popup:
+        failures.append("Quick Lookup result surface no longer uses Kit's borderless appearance")
     for removed in ("selectable-result", "edited(value)", "FluentTextArea"):
         if removed in popup:
             failures.append(f"Quick Lookup retains the old editable-result workaround: {removed}")

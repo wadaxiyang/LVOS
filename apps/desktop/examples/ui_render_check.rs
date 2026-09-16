@@ -7,13 +7,9 @@ fn render<T: ComponentHandle + 'static>(
     component: &T,
     output: String,
 ) -> Result<(), Box<dyn Error>> {
-    let ready = std::rc::Rc::new(std::cell::Cell::new(false));
-    let armed = ready.clone();
+    component.show()?;
     let weak = component.as_weak();
-    component.window().set_rendering_notifier(move |state, _| {
-        if !matches!(state, slint::RenderingState::AfterRendering) || !armed.replace(false) {
-            return;
-        }
+    slint::Timer::single_shot(Duration::from_millis(700), move || {
         let component = weak.upgrade().unwrap();
         let snapshot = component.window().take_snapshot().unwrap();
         assert!(
@@ -41,14 +37,8 @@ fn render<T: ComponentHandle + 'static>(
             output
         );
         slint::quit_event_loop().unwrap();
-    })?;
-    component.show()?;
-    let weak = component.as_weak();
-    slint::Timer::single_shot(Duration::from_millis(700), move || {
-        ready.set(true);
-        weak.upgrade().unwrap().window().request_redraw();
     });
-    slint::run_event_loop()?;
+    slint::run_event_loop_until_quit()?;
     Ok(())
 }
 
@@ -67,6 +57,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if matches!(scenario, "loading" | "ready" | "error" | "long") {
         let popup = lvos::QuickLookupPopup::new()?;
+        // Production sizing clamps every lookup state to at least 240px.
+        popup.set_popup_height(240.);
         popup.set_dark_theme(dark);
         popup.set_reduce_motion(reduced);
         popup.set_source_text(if scenario == "long" {

@@ -133,8 +133,8 @@ export component MainWindow inherits Window {
                     kind: root.settings-feedback-kind == FeedbackKind.error ? InfoBarKind.error : root.settings-feedback-kind == FeedbackKind.success ? InfoBarKind.success : InfoBarKind.info;
                     dismissed => { root.settings-error = ""; }
                 }
-                // Keep full host details readable without relying on Kit 0.1.1
-                // InfoBar's wrapped-message height. Both regions dismiss together.
+                // Keep full host details readable independently of Kit's wrapped
+                // InfoBar message height. Both regions dismiss together.
                 feedback-scroll := FluentScrollView {
                     height: min(96px, feedback-detail.preferred-height);
                     horizontal-scrollbar-policy: always-off;

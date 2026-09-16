@@ -1,4 +1,4 @@
-# LVOS 0.1.8 unsigned release notes
+# LVOS 0.1.9 unsigned release notes
 
 This release separates the long-running native Agent from the on-demand Slint UI process and
 publishes installable desktop packages.
@@ -13,6 +13,10 @@ helper. Native package checks verify this process pair and the notice inventory.
 
 ## Highlights
 
+- The desktop renderer now uses Winit with Skia over Direct3D 12 on Windows and Metal on macOS;
+  hidden Slint windows release their native graphics surfaces and are recreated on demand.
+- Quick Lookup now uses Quadrant-Kit 0.1.3's selectable, read-only `ActionTextArea`. Translation,
+  lookup count, Copy and Refresh share one compact borderless result surface.
 - A left click on the LVOS tray icon now opens and raises the management window directly; the
   context menu remains available from the right click.
 - Translation Settings visibly masks an existing TokenHub API key while keeping the secret in the
@@ -27,7 +31,7 @@ helper. Native package checks verify this process pair and the notice inventory.
 - Kit password fields for credentials, with temporary field contents cleared when leaving or saving.
 - Kit lookup, permission, progress, error and confirmation UI; stronger popup focus and dismissal
   handling and modal lifecycle protection.
-- Official Git dependency pinned to Kit 0.1.1, embedded UI assets, and isolated server-only builds.
+- Official Git dependency pinned to Kit 0.1.3, embedded UI assets, and isolated server-only builds.
 - Required dependency notices and verification in both platform archives.
 - Background capture, tray, hotkey, sync and storage now live in the Agent process. Slint windows
   run in the authenticated, on-demand UI helper.

@@ -131,8 +131,8 @@ mod native {
         };
         let scale = ui.popup().window().scale_factor();
         click(
-            rect.right - (38. * scale) as i32,
-            rect.bottom - (72. * scale) as i32,
+            rect.right - (102. * scale) as i32,
+            rect.bottom - (32. * scale) as i32,
         )
     }
     fn outside_click(ui: &UiController) -> bool {

@@ -11,9 +11,9 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 UI = "apps/desktop/ui/"
 KIT_URL = "https://github.com/wadaxiyang/Quadrant-Kit.git"
-KIT_REV = "d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6"
-KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.1", "optional": True}
-# These are public 0.1.1 exports, not private implementation names.
+KIT_REV = "225e85150880df0d60bc504ee5c58fb84ffb3670"
+KIT_DEP = {"git": KIT_URL, "rev": KIT_REV, "version": "=0.1.3", "optional": True}
+# These are public 0.1.3 exports, not private implementation names.
 KIT_NAMES = set("Theme ThemeMode Motion Typography UiConstants SurfaceCard FluentIcon FluentIcons IconButton FluentProgressRing FluentScrollView FluentInfoBar FluentTextArea ActionTextArea InfoBarKind PageHeader SectionHeader SettingRow FluentButton FluentTextField FluentComboBox FluentSwitch InputType Badge BadgeKind EmptyState NavigationView NavigationEntry NavigationEntryKind NavigationPaneMode ModalManager ModalKind".split())
 # Exact product compositions, rather than an exemption for a whole directory.
 DECLARATIONS = {
@@ -194,7 +194,7 @@ def check_dependencies(documents: dict[str, dict]) -> None:
 
 def check_locks(lock: dict, server: dict) -> None:
     packages = lock.get("package", [])
-    for name, version in (("quadrant-kit", "0.1.1"), ("slint", "1.17.1"), ("slint-build", "1.17.1")):
+    for name, version in (("quadrant-kit", "0.1.3"), ("slint", "1.17.1"), ("slint-build", "1.17.1")):
         found = [p for p in packages if p["name"] == name]
         if len(found) != 1 or found[0]["version"] != version:
             raise ValueError(f"wrong locked package identity: {name}")

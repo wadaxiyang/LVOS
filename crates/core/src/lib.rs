@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn identity_constants_match_v1() {
-        assert_eq!(SOFTWARE_VERSION, "0.1.8");
+        assert_eq!(SOFTWARE_VERSION, "0.1.9");
         assert_eq!(API_VERSION, "v1");
         assert_eq!(CONTENT_KEY_VERSION, 1);
         assert_eq!(UPDATE_MANIFEST_VERSION, 2);

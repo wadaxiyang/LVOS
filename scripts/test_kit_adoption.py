@@ -29,6 +29,7 @@ class KitBoundaryTests(unittest.TestCase):
         self.assertIn("result-editor := ActionTextArea {", popup)
         self.assertIn("text: root.canonical-result;", popup)
         self.assertIn("read_only: true;", popup)
+        self.assertIn("outlined: false;", popup)
         self.assertIn('accessible_name: "Copy translation";', popup)
         self.assertIn('accessible_name: "Refresh translation";', popup)
         for removed in ("selectable-result", "edited(value)", "FluentTextArea"):

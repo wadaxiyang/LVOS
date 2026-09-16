@@ -3002,7 +3002,7 @@ dependencies = [
 
 [[package]]
 name = "lvos"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "axum",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-agent"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "lvos",
  "lvos-auth",
@@ -3061,14 +3061,14 @@ dependencies = [
 
 [[package]]
 name = "lvos-auth"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "lvos-core",
 ]
 
 [[package]]
 name = "lvos-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "sha2 0.11.0",
  "unicode-casefold",
@@ -3078,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-ipc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-platform"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "block2 0.6.2",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-server"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "argon2",
  "axum",
@@ -3138,7 +3138,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-storage"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "lvos-core",
  "lvos-sync",
@@ -3151,7 +3151,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-sync"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "lvos-core",
  "serde",
@@ -3159,7 +3159,7 @@ dependencies = [
 
 [[package]]
 name = "lvos-translation"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -4331,8 +4331,8 @@ dependencies = [
 
 [[package]]
 name = "quadrant-kit"
-version = "0.1.1"
-source = "git+https://github.com/wadaxiyang/Quadrant-Kit.git?rev=d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6#d8a2821ea9a2241a2f4aff1f4a4751ec9811a7b6"
+version = "0.1.3"
+source = "git+https://github.com/wadaxiyang/Quadrant-Kit.git?rev=225e85150880df0d60bc504ee5c58fb84ffb3670#225e85150880df0d60bc504ee5c58fb84ffb3670"
 
 [[package]]
 name = "quick-error"
